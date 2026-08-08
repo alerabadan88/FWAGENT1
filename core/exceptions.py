@@ -12,3 +12,11 @@ class EDAParseError(FWAgentError):
 
 class CatalogError(FWAgentError):
     """Raised for invalid catalog operations (duplicate part, missing part, bad DB)."""
+
+
+class ToolchainNotFoundError(FWAgentError):
+    """Raised when a required compiler toolchain is not installed on this machine."""
+
+
+class CompilationError(FWAgentError):
+    """Raised when the toolchain runs but rejects the source it was given."""
