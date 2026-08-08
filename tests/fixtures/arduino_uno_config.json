@@ -1,0 +1,47 @@
+{
+  "mcu": "ATmega328P",
+  "mcu_family": "AVR",
+  "mcu_specs": {
+    "flash_kb": 32,
+    "sram_kb": 2,
+    "eeprom_kb": 1,
+    "clock_mhz": 16,
+    "gpio_pins": 20
+  },
+  "power_supply_voltage": 5.0,
+  "crystal_frequency_mhz": 16,
+  "sensors": [
+    {
+      "name": "DHT22",
+      "type": "temperature_humidity",
+      "interface": "GPIO",
+      "pin": "D2",
+      "required": true
+    },
+    {
+      "name": "HC-SR04",
+      "type": "ultrasonic_distance",
+      "interface": "GPIO",
+      "pins": { "trigger": "D9", "echo": "D10" },
+      "required": true
+    },
+    {
+      "name": "LDR",
+      "type": "light_level",
+      "interface": "ADC",
+      "pin": "A0",
+      "required": false
+    }
+  ],
+  "interfaces_available": {
+    "i2c_buses": 1,
+    "uart_ports": 1,
+    "spi_ports": 1,
+    "adc_channels": 6
+  },
+  "special_features": {
+    "watchdog": true,
+    "rtc": false,
+    "security": false
+  }
+}

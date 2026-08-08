@@ -1,0 +1,60 @@
+{
+  "mcu": "ESP32-WROOM-32",
+  "mcu_family": "ESP32",
+  "mcu_specs": {
+    "flash_kb": 4096,
+    "sram_kb": 520,
+    "clock_mhz": 240,
+    "gpio_pins": 34
+  },
+  "power_supply_voltage": 3.3,
+  "crystal_frequency_mhz": 40,
+  "sensors": [
+    {
+      "name": "MPU6050",
+      "type": "imu_accel_gyro",
+      "interface": "I2C",
+      "bus": "I2C1",
+      "address": "0x68",
+      "required": true
+    },
+    {
+      "name": "BMP280",
+      "type": "pressure_temperature",
+      "interface": "I2C",
+      "bus": "I2C1",
+      "address": "0x76",
+      "required": true
+    },
+    {
+      "name": "NEO-6M",
+      "type": "gps",
+      "interface": "UART",
+      "port": "UART2",
+      "baud": 9600,
+      "required": true
+    },
+    {
+      "name": "DS18B20",
+      "type": "temperature",
+      "interface": "GPIO",
+      "pin": "GPIO4",
+      "protocol": "1-Wire",
+      "required": false
+    }
+  ],
+  "interfaces_available": {
+    "i2c_buses": 2,
+    "uart_ports": 3,
+    "spi_ports": 2,
+    "adc_channels": 18
+  },
+  "special_features": {
+    "watchdog": true,
+    "rtc": true,
+    "security": true,
+    "wifi": true,
+    "bluetooth": true,
+    "deep_sleep": true
+  }
+}

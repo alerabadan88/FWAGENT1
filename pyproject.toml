@@ -1,0 +1,24 @@
+[project]
+name = "fw-automation-agent"
+version = "0.0.1"
+description = "Agentic firmware generation pipeline: EDA input -> discovery -> design -> codegen -> build -> deploy"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.6",
+    "networkx>=3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*"]

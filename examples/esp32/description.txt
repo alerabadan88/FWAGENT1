@@ -1,0 +1,19 @@
+Board: ESP32-WROOM-32 dev board, 3.3V logic, 40 MHz crystal, dual-core 240 MHz.
+
+Sensors:
+- MPU6050 IMU (accelerometer + gyroscope) on I2C bus 1, address 0x68
+- BMP280 pressure/temperature sensor, same I2C bus 1, address 0x76
+- NEO-6M GPS module on UART2 at 9600 baud
+- DS18B20 temperature sensor (1-Wire) on GPIO4 — optional, only populated on some
+  board revisions
+
+Requirements:
+- Read IMU at 100 Hz, pressure/temp at 1 Hz, GPS as data arrives
+- Log all readings to onboard flash and expose over WiFi (device will host a small
+  HTTP status endpoint)
+- Deep sleep between GPS fixes to save battery — this is a battery-powered outdoor
+  tracker, not USB-tethered
+- Needs RTC for timestamping readings when GPS has no fix yet
+
+This is a concurrent, multi-rate workload (100 Hz IMU + 1 Hz env sensor + async GPS +
+WiFi), so a bare-metal loop is probably not the right call here.

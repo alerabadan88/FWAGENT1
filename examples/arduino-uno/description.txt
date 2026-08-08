@@ -1,0 +1,12 @@
+Board: Arduino Uno (ATmega328P), 5V logic, 16 MHz crystal.
+
+Sensors:
+- DHT22 temperature/humidity sensor on digital pin D2 (single-wire protocol)
+- HC-SR04 ultrasonic distance sensor: trigger on D9, echo on D10
+- LDR photoresistor (light level) on analog pin A0
+
+No I2C or SPI devices in this build. One hardware UART used only for USB serial
+debug output at 9600 baud. No RTC, no external watchdog (use internal watchdog
+timer). Battery-free, USB-powered only, so no low-power/sleep requirements.
+
+Goal: read all three sensors every 2 seconds and print readings over serial.
