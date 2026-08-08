@@ -60,7 +60,7 @@ void {{ sensor.symbol | lower }}_init(void)
 sensor_status_t {{ sensor.symbol | lower }}_read_mm(uint16_t *out_distance_mm)
 {
     uint16_t ticks;
-    uint32_t distance_mm;
+    uint16_t distance_mm;
 
     if (out_distance_mm == 0) {
         return SENSOR_ERR_ARG;
@@ -93,7 +93,7 @@ sensor_status_t {{ sensor.symbol | lower }}_read_mm(uint16_t *out_distance_mm)
     ticks = TCNT1;
     {{ sensor.symbol | lower }}_timer_stop();
 
-    distance_mm = ((uint32_t)ticks * 686UL) / 1000UL;
+    distance_mm = {{ sensor.symbol | lower }}_ticks_to_mm(ticks);
 
     if (distance_mm > {{ sensor.symbol }}_MAX_DISTANCE_MM) {
         return SENSOR_ERR_OUT_OF_RANGE;
@@ -101,6 +101,13 @@ sensor_status_t {{ sensor.symbol | lower }}_read_mm(uint16_t *out_distance_mm)
 
     *out_distance_mm = (uint16_t)distance_mm;
     return SENSOR_OK;
+}
+
+uint16_t {{ sensor.symbol | lower }}_ticks_to_mm(uint16_t ticks)
+{
+    /* The 32-bit intermediate matters: ticks * 686 overflows 16 bits above
+     * 95 ticks, which is only 65 mm. */
+    return (uint16_t)(((uint32_t)ticks * 686UL) / 1000UL);
 }
 
 sensor_status_t {{ sensor.symbol | lower }}_read(uint16_t *out_value)

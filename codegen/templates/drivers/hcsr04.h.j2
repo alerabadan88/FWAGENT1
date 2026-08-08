@@ -22,4 +22,9 @@ sensor_status_t {{ sensor.symbol | lower }}_read_mm(uint16_t *out_distance_mm);
 /* Uniform single-value entry point used by the main loop. */
 sensor_status_t {{ sensor.symbol | lower }}_read(uint16_t *out_value);
 
+/* Convert a Timer1 tick count into millimetres. Split out from the timed read
+ * so the arithmetic can be exercised without hardware.
+ */
+uint16_t {{ sensor.symbol | lower }}_ticks_to_mm(uint16_t ticks);
+
 #endif /* {{ sensor.symbol }}_H */

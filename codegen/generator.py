@@ -132,6 +132,41 @@ def _single_pin(sensor: Sensor) -> str:
     return next(iter(sensor.pins.values()))
 
 
+def _uart_settings(f_cpu_hz: int, baud: int) -> dict[str, object]:
+    """Compute UBRR and report the baud error the divisor actually produces.
+
+    The divisor is an integer, so the achieved rate is rarely exactly the
+    requested one. Receivers tolerate roughly 2%; beyond that the link is
+    unreliable, so it is a generation-time error rather than a surprise on
+    the bench.
+    """
+    if baud <= 0:
+        raise CodegenError(f"UART baud rate must be positive, got {baud}")
+
+    ubrr = round(f_cpu_hz / (16 * baud)) - 1
+    if ubrr < 0 or ubrr > 4095:
+        raise CodegenError(
+            f"baud rate {baud} is not reachable at {f_cpu_hz} Hz "
+            f"(UBRR would be {ubrr}, hardware allows 0..4095)"
+        )
+
+    actual = f_cpu_hz / (16 * (ubrr + 1))
+    error_percent = (actual - baud) / baud * 100.0
+
+    if abs(error_percent) > 2.0:
+        raise CodegenError(
+            f"baud rate {baud} at {f_cpu_hz} Hz has {error_percent:.2f}% error "
+            f"(UBRR={ubrr}, actual={actual:.0f}); most receivers need under 2%"
+        )
+
+    return {
+        "uart_baud": baud,
+        "uart_ubrr": ubrr,
+        "uart_actual_baud": int(round(actual)),
+        "uart_error_percent": f"{error_percent:.2f}",
+    }
+
+
 def _environment() -> Environment:
     return Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
@@ -147,6 +182,7 @@ def generate_firmware(
     f_cpu_hz: int = 16_000_000,
     loop_period_ms: int = 2000,
     sensor_settle_ms: int = 60,
+    uart_baud: int = 9600,
 ) -> GeneratedFirmware:
     """Render ``main.c`` and ``config.h`` for the given board.
 
@@ -168,12 +204,20 @@ def generate_firmware(
         "f_cpu_hz": f_cpu_hz,
         "loop_period_ms": loop_period_ms,
         "sensor_settle_ms": sensor_settle_ms,
+        "has_single_wire": any(s.driver_kind == "single_wire" for s in sensors),
+        "has_ultrasonic": any(s.driver_kind == "ultrasonic" for s in sensors),
+        "has_adc": any(s.driver_kind == "adc" for s in sensors),
+        **_uart_settings(f_cpu_hz, uart_baud),
     }
+    # main.c declares a shared uint16_t for every driver that reports one value.
+    context["has_simple_value"] = context["has_ultrasonic"] or context["has_adc"]
 
     env = _environment()
     files = {
         "config.h": env.get_template("config.h.j2").render(**context),
         "sensor.h": env.get_template("sensor.h.j2").render(**context),
+        "uart.h": env.get_template("drivers/uart.h.j2").render(**context),
+        "uart.c": env.get_template("drivers/uart.c.j2").render(**context),
         "main.c": env.get_template("main.c.j2").render(**context),
     }
 

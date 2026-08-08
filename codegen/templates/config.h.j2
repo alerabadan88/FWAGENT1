@@ -17,6 +17,10 @@
  * burst to decay before the next trigger. */
 #define SENSOR_SETTLE_MS {{ sensor_settle_ms }}
 
+/* USART0: {{ uart_baud }} baud requested, {{ uart_actual_baud }} actual ({{ uart_error_percent }} % error). */
+#define UART_BAUD       {{ uart_baud }}
+#define UART_UBRR       {{ uart_ubrr }}
+
 {% for sensor in sensors %}
 /* {{ sensor.name }} - {{ sensor.type }} over {{ sensor.interface.value }} */
 {%- for role, pin in sensor.resolved_pins.items() %}

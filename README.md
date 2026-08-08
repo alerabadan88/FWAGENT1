@@ -7,13 +7,13 @@ Takes a hardware description (JSON config today, EDA netlists later) and generat
 | Module | State |
 |---|---|
 | `core/` | Done — hardware model, JSON config parser, SQLite parts catalog |
-| `codegen/` | Done for AVR — Jinja2 templates producing compilable `main.c`, `config.h`, and real per-sensor drivers |
-| `services/` | Toolchain, driver registry/fetcher, build service done; `test_service.py` not started |
+| `codegen/` | Done for AVR — real per-sensor drivers plus UART reporting |
+| `services/` | Toolchain, driver registry/fetcher, build service, and simulator test service — all done |
 | `agents/` | Not started |
 | `api/` | Not started |
 | `docs/` | Fumadocs site scaffolded; page content still stubs |
 
-97 tests, all passing.
+106 tests, all passing.
 
 ## Install
 
@@ -41,26 +41,38 @@ Tests requiring `avr-gcc` skip (visibly) when it is absent instead of faking a p
 
 ## End-to-end today
 
-```python
-from core.eda_parser import parse_config_file
-from codegen.generator import generate_firmware
-from services.build_service import BuildService
-
-analysis = parse_config_file("examples/arduino-uno/config.json")
-firmware = generate_firmware(analysis)
-result = BuildService().build(firmware, analysis.mcu, "build/")
-
-print(result.status, result.memory.flash_percent, "% flash")
-# success 3.22 % flash
+```bash
+./.venv/Scripts/python.exe cli.py inspect examples/arduino-uno/config.json
+./.venv/Scripts/python.exe cli.py build   examples/arduino-uno/config.json
+./.venv/Scripts/python.exe cli.py verify  examples/arduino-uno/config.json
 ```
 
-Every number there is measured from the real ELF by `avr-size`.
+`verify` builds the firmware and then runs the drivers' arithmetic **on a simulated
+ATmega328P** (`avr-gdb`'s instruction-set simulator), so target integer widths and
+overflow behave as they will on the device:
+
+```
+Build OK   flash 5.54 %, RAM 4.98 %
+  PASS  DHT22: valid frame accepted
+  PASS  DHT22: humidity decodes to 65.8 %
+  PASS  DHT22: temperature decodes to 26.9 C
+  PASS  DHT22: corrupt checksum rejected
+  PASS  HC-SR04: 1000 ticks is 686 mm
+  PASS  HC-SR04: no 16-bit overflow at range
+  PASS  HC-SR04: zero ticks is zero mm
+
+7/7 checks passed on a simulated ATmega328P
+```
+
+Memory figures are measured from the real ELF by `avr-size`; the checks are real
+executions, not assertions about source text.
 
 ## Honest scope
 
 - **Only AVR / ATmega328P.** The ESP32 example in `examples/` parses fine but is rejected by codegen — generating Xtensa would need a toolchain this project cannot currently validate against.
 - **Drivers are real or the part is rejected.** ADC, DHT22, and HC-SR04 have working implementations; a part with no driver raises `CodegenError` instead of emitting a stub.
-- **"Compiles" is not "works."** The acceptance tests prove the generated firmware builds and links; timing-critical protocols can only be validated on physical hardware.
+- **Verified in simulation, not on hardware.** The drivers' arithmetic runs on a simulated ATmega328P, but the timing-critical paths (DHT22 bit thresholds, HC-SR04 echo timing) come from datasheets and need a scope or a real sensor to confirm.
+- **The firmware reports over UART** at 9600 baud 8N1; nothing is flashed automatically yet (`avrdude` is installed but not wired up).
 - **No netlist parsing yet** — `parse_netlist_file()` raises `NotImplementedError`.
 
 ## Where drivers come from

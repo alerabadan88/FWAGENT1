@@ -22,4 +22,11 @@ sensor_status_t {{ sensor.symbol | lower }}_read_all(int16_t *out_temp_dc, uint1
 /* Uniform single-value entry point used by the main loop: humidity in 0.1 %. */
 sensor_status_t {{ sensor.symbol | lower }}_read(uint16_t *out_value);
 
+/* Decode a captured 5-byte frame. Split out from the timing-critical read so
+ * the arithmetic can be exercised without hardware -- see services/test_service.py.
+ */
+sensor_status_t {{ sensor.symbol | lower }}_decode(const uint8_t bytes[5],
+                                                   int16_t *out_temp_dc,
+                                                   uint16_t *out_rh_dpm);
+
 #endif /* {{ sensor.symbol }}_H */

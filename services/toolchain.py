@@ -108,6 +108,26 @@ class AvrToolchain:
             )
         return candidate
 
+    @property
+    def gdb_path(self) -> Path:
+        """Path to ``avr-gdb``, which drives the instruction-set simulator."""
+        suffix = ".exe" if os.name == "nt" else ""
+        candidate = self.gcc_path.parent / f"avr-gdb{suffix}"
+        if not candidate.is_file():
+            raise ToolchainNotFoundError(
+                f"avr-gdb was not found next to {self.gcc_path}. {self.install_hint}"
+            )
+        return candidate
+
+    @classmethod
+    def simulator_available(cls) -> bool:
+        """Whether on-target simulation can run at all on this machine."""
+        try:
+            cls().gdb_path
+        except (ToolchainNotFoundError, OSError):
+            return False
+        return True
+
     def section_sizes(self, elf: str | Path) -> dict[str, int]:
         """Read real ``.text``/``.data``/``.bss`` sizes out of a built ELF."""
         elf = Path(elf)
@@ -178,6 +198,7 @@ class AvrToolchain:
         f_cpu_hz: int | None = None,
         include_dirs: tuple[str | Path, ...] = (),
         optimization: str = "-Os",
+        extra_flags: tuple[str, ...] = (),
     ) -> CompileResult:
         """Compile and link real sources into an ELF binary."""
         if not sources:
@@ -191,6 +212,7 @@ class AvrToolchain:
         if f_cpu_hz is not None:
             command.append(f"-DF_CPU={f_cpu_hz}UL")
         command.extend(f"-I{Path(d)}" for d in include_dirs)
+        command.extend(extra_flags)
         command.extend(["-o", str(output)])
         command.extend(str(s) for s in sources)
 
