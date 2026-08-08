@@ -1,0 +1,4 @@
+{
+  "title": "Architecture",
+  "pages": ["index", "system-overview", "agent-orchestration", "data-flow"]
+}
