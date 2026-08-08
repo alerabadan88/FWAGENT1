@@ -1,7 +1,12 @@
 """Parsers that turn hardware input files into a validated :class:`PCBAnalysis`.
 
-Only the JSON config format is supported so far. Netlist formats (Altium/KiCad)
-are not implemented yet — see :func:`parse_netlist_file`.
+Two inputs are supported, and they carry different things:
+
+* a **JSON config**, which states the board as a person describes it, and
+* a **KiCad netlist**, which carries the connectivity a schematic actually has.
+
+The netlist is the stronger input: it names the MCU pin each part is wired to,
+so nothing about the wiring has to be asked or assumed.
 """
 
 from __future__ import annotations
@@ -138,9 +143,25 @@ def parse_config_file(path: str | Path) -> PCBAnalysis:
     return parse_config_dict(data)
 
 
-def parse_netlist_file(path: str | Path) -> PCBAnalysis:
-    """Parse an Altium/KiCad netlist. Not implemented yet."""
-    raise NotImplementedError(
-        "Netlist parsing is not implemented yet; only JSON config input is supported. "
-        "Use parse_config_file()."
-    )
+def parse_netlist_file(path: str | Path, board: str | None = None) -> PCBAnalysis:
+    """Parse a KiCad netlist into a validated :class:`PCBAnalysis`.
+
+    Unlike the JSON config, this input carries the *real* connectivity: which
+    MCU pin each part is wired to. Returns only the analysis; use
+    :func:`analyse_netlist_file` when the notes and unrecognised parts matter.
+    """
+    report = analyse_netlist_file(path, board=board)
+    if report.analysis is None:
+        detail = "; ".join(report.notes) or "nothing usable was found"
+        raise EDAParseError(f"{path}: {detail}")
+    return report.analysis
+
+
+def analyse_netlist_file(path: str | Path, board: str | None = None):
+    """Parse a netlist and report what it did and did not settle."""
+    from core.device_catalog import DeviceCatalog
+    from core.netlist_parser import parse_kicad_netlist_file
+    from core.schematic import analyse_netlist
+
+    netlist = parse_kicad_netlist_file(path)
+    return analyse_netlist(netlist, DeviceCatalog(), board=board)

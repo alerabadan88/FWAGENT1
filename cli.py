@@ -170,6 +170,44 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_schematic(args: argparse.Namespace) -> int:
+    """Read a KiCad netlist and report what the schematic actually settles."""
+    from core.eda_parser import analyse_netlist_file
+
+    report = analyse_netlist_file(args.netlist, board=args.board)
+
+    print(f"MCU      {report.mcu_ref} -> {report.mcu_part}  (confirmed with the toolchain)")
+
+    if report.analysis:
+        for sensor in report.analysis.sensors:
+            wiring = ", ".join(f"{role}={pin}" for role, pin in sorted(sensor.pins.items()))
+            print(f"         - {sensor.name:<10} {sensor.interface.value:<5} {wiring}")
+
+    for item in report.unrecognised_parts:
+        print(f"NO DRIVER {item}", file=sys.stderr)
+    for item in report.unmapped_connections:
+        print(f"UNMAPPED  {item}", file=sys.stderr)
+    for note in report.notes:
+        print(f"NOTE     {note}")
+
+    if not report.ok:
+        print("\nNothing generatable from this schematic yet.", file=sys.stderr)
+        return 1
+
+    if args.build:
+        firmware = generate_firmware(report.analysis, f_cpu_hz=args.f_cpu)
+        build = BuildService().build(
+            firmware, report.analysis.mcu, args.output, f_cpu_hz=args.f_cpu
+        )
+        if not build.ok:
+            print("Build FAILED", file=sys.stderr)
+            print(build.diagnostics, file=sys.stderr)
+            return 1
+        print(f"Build OK   flash {build.memory.flash_percent} %, "
+              f"RAM {build.memory.ram_percent} %")
+    return 0
+
+
 def cmd_chat(args: argparse.Namespace) -> int:
     """Interview the user about a board, then generate from the answers."""
     from agents.extractor import ExtractionError, HardwareExtractor
@@ -377,6 +415,17 @@ def build_parser() -> argparse.ArgumentParser:
     hex_cmd = subparsers.add_parser("hex", help="build and emit a flashable .hex/.bin")
     add_common(hex_cmd)
     hex_cmd.set_defaults(func=cmd_hex)
+
+    schematic = subparsers.add_parser(
+        "schematic",
+        help="read a KiCad netlist: real MCU pins, no guessing about wiring",
+    )
+    schematic.add_argument("netlist", type=Path, help="KiCad .net export")
+    schematic.add_argument("--board", help="board name, only needed for silkscreen labels")
+    schematic.add_argument("--build", action="store_true", help="also compile it")
+    schematic.add_argument("-o", "--output", type=Path, default=Path("build"))
+    schematic.add_argument("--f-cpu", type=int, default=16_000_000)
+    schematic.set_defaults(func=cmd_schematic)
 
     ports = subparsers.add_parser("ports", help="list serial ports you could flash to")
     ports.set_defaults(func=cmd_ports)

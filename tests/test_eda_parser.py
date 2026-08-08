@@ -113,6 +113,16 @@ def test_i2c_address_conflict_in_config_raises_hardware_validation_error():
         parse_config_dict(config)
 
 
-def test_netlist_parsing_is_explicitly_not_implemented():
-    with pytest.raises(NotImplementedError, match="not implemented yet"):
+def test_a_netlist_yields_connectivity_the_json_config_cannot():
+    """The netlist knows which MCU pin each part is on; the JSON config is told."""
+    analysis = parse_netlist_file(FIXTURES / "netlists" / "uno_sensors.net")
+
+    assert analysis.mcu.name == "atmega328p"
+    by_name = {s.name: s for s in analysis.sensors}
+    assert by_name["DHT22"].pins == {"pin": "PD2"}
+    assert by_name["HC-SR04"].pins == {"trigger": "PB1", "echo": "PB2"}
+
+
+def test_feeding_a_json_config_to_the_netlist_parser_is_rejected():
+    with pytest.raises(EDAParseError, match="does not look like a KiCad netlist"):
         parse_netlist_file(FIXTURES / "arduino_uno_config.json")
