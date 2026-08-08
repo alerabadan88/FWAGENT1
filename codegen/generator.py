@@ -9,11 +9,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from core.exceptions import CodegenError
+from core.exceptions import CodegenError, FWAgentError
 from core.hardware_model import InterfaceType, PCBAnalysis, Sensor
+
+if TYPE_CHECKING:  # avoid importing the toolchain layer at module load
+    from core.device_catalog import DeviceFacts
 from codegen.pin_mapping import AvrPin, map_arduino_uno_pin
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -167,6 +171,25 @@ def _uart_settings(f_cpu_hz: int, baud: int) -> dict[str, object]:
     }
 
 
+def _lookup_device(mcu_name: str) -> "DeviceFacts":
+    """Get the part's real facts from the toolchain.
+
+    Kept as a late import so `codegen` does not drag a toolchain dependency
+    into callers that supply `device` themselves.
+    """
+    from core.device_catalog import DeviceCatalog, DeviceNotFoundError
+
+    try:
+        return DeviceCatalog().facts(mcu_name)
+    except DeviceNotFoundError as exc:
+        raise CodegenError(str(exc)) from exc
+    except FWAgentError as exc:
+        raise CodegenError(
+            f"could not read the facts for '{mcu_name}' from the toolchain: {exc}. "
+            f"Install avr-gcc, or pass `device=` explicitly."
+        ) from exc
+
+
 def _environment() -> Environment:
     return Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
@@ -183,6 +206,7 @@ def generate_firmware(
     loop_period_ms: int = 2000,
     sensor_settle_ms: int = 60,
     uart_baud: int = 9600,
+    device: "DeviceFacts | None" = None,
 ) -> GeneratedFirmware:
     """Render ``main.c`` and ``config.h`` for the given board.
 
@@ -197,6 +221,13 @@ def generate_firmware(
     if not analysis.sensors:
         raise CodegenError("cannot generate firmware for a board with no sensors")
 
+    device = device or _lookup_device(analysis.mcu.name)
+    if not device.has_uart:
+        raise CodegenError(
+            f"{device.part} has no USART, so it cannot report readings over serial. "
+            f"This generator has no other transport."
+        )
+
     sensors = [_resolve_sensor(sensor) for sensor in analysis.sensors]
     context = {
         "mcu": analysis.mcu,
@@ -207,6 +238,9 @@ def generate_firmware(
         "has_single_wire": any(s.driver_kind == "single_wire" for s in sensors),
         "has_ultrasonic": any(s.driver_kind == "ultrasonic" for s in sensors),
         "has_adc": any(s.driver_kind == "adc" for s in sensors),
+        "device": device,
+        # Register index of the USART this part actually has -- see DeviceFacts.
+        "usart": device.usart_suffix,
         **_uart_settings(f_cpu_hz, uart_baud),
     }
     # main.c declares a shared uint16_t for every driver that reports one value.

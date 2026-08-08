@@ -47,13 +47,86 @@ class FlashError(FWAgentError):
     """Raised when firmware cannot be written to a device."""
 
 
+# USB vendor IDs that ship AVR development boards or the USB-serial bridges
+# they use. Presence of one is strong evidence; absence is not disqualifying,
+# so this ranks candidates rather than filtering them.
+_KNOWN_VENDORS = {
+    "2341": "Arduino SA",
+    "2A03": "Arduino (arduino.org)",
+    "1B4F": "SparkFun",
+    "239A": "Adafruit",
+    "1A86": "QinHeng CH340 (common on Uno clones)",
+    "0403": "FTDI (common on Nano/Pro Mini)",
+    "10C4": "Silicon Labs CP210x",
+    "16C0": "Teensy / Van Ooijen",
+}
+
+_BOARD_WORDS = ("arduino", "ch340", "ch341", "ftdi", "usb serial", "usb-serial", "cp210", "wch")
+
+
 @dataclass
 class SerialPort:
     name: str
     description: str = ""
+    device_id: str = ""
+
+    @property
+    def vendor_id(self) -> str | None:
+        match = re.search(r"USB\\VID_([0-9A-F]{4})", self.device_id, re.I)
+        return match.group(1).upper() if match else None
+
+    @property
+    def vendor_name(self) -> str | None:
+        return _KNOWN_VENDORS.get(self.vendor_id or "")
+
+    @property
+    def is_usb(self) -> bool:
+        return self.device_id.upper().startswith("USB\\")
+
+    def score(self) -> int:
+        """How likely this port is a development board. Higher is likelier.
+
+        Deliberately a ranking, not a filter: an unrecognised adapter still
+        appears, just lower down, because guessing wrong about which device to
+        overwrite is worse than making the user read one extra line.
+        """
+        score = 0
+        if self.vendor_name:
+            score += 100
+        if self.is_usb:
+            score += 50
+        else:
+            # ACPI\PNP0501 and friends are motherboard UARTs, essentially never
+            # a plugged-in board.
+            score -= 40
+        lowered = self.description.lower()
+        if any(word in lowered for word in _BOARD_WORDS):
+            score += 25
+        return score
+
+    @property
+    def reason(self) -> str:
+        if self.vendor_name:
+            return f"USB device from {self.vendor_name}"
+        if self.is_usb:
+            return "USB serial device of an unrecognised make"
+        return "built-in port, not a plugged-in board"
 
     def __str__(self) -> str:
         return f"{self.name} - {self.description}" if self.description else self.name
+
+
+def recommend_port(ports: list[SerialPort] | None = None) -> SerialPort | None:
+    """Return the most likely board, or ``None`` when nothing looks like one.
+
+    Returning ``None`` matters: a confident-looking recommendation for a
+    motherboard COM port would be worse than no recommendation at all.
+    """
+    candidates = ports if ports is not None else list_serial_ports()
+    plausible = [p for p in candidates if p.score() > 0]
+    if not plausible:
+        return None
+    return max(plausible, key=lambda p: (p.score(), p.name))
 
 
 @dataclass
