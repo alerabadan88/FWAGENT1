@@ -14,13 +14,20 @@ Open http://localhost:3000.
 ## Structure
 
 - `app/` — Next.js App Router pages (home, docs layout, dynamic doc pages, search API route)
-- `content/docs/` — documentation source in MDX, organized by section (`getting-started`, `architecture`, `core-components`, `agents`, `codegen`, `api`, `deployment`, `advanced`)
-- `content/api-reference/openapi.json` — OpenAPI spec for the REST API
+- `content/docs/` — documentation source in MDX: `getting-started`, `concepts`, `inputs`, `firmware`, `reference`, and `limitations`
 - `components/ui/` — navigation/search/sidebar building blocks
 - `components/custom/` — MDX-usable components (`CodeExample`, `ArchitectureDiagram`, `ApiExplorer`, `ComparisonTable`)
 - `lib/source.ts` — Fumadocs source loader config
 - `lib/metadata.ts` — shared page metadata helper
 
-## Status
+## Deployment
 
-Scaffold only — every page under `content/docs/` is a stub. Fill in real content as the `core/`, `codegen/`, and `agents/` implementations land.
+Built as a static export and published to GitHub Pages by
+`.github/workflows/docs.yml` on any change under `docs/`.
+
+The `GITHUB_PAGES=true` environment variable switches on the `/FWAGENT1`
+basePath, which Pages needs because it serves a project site from a
+subdirectory. Local `npm run dev` and `npm run build` keep a bare path.
+
+Search is a build-time index rather than an endpoint, since a static export has
+no server to answer one.
