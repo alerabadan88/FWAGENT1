@@ -18,6 +18,11 @@ from codegen.generator import generate_firmware
 from core.eda_parser import parse_config_file
 from core.exceptions import FWAgentError
 from services.build_service import BuildService
+from services.flash_service import (
+    AVRDUDE_INSTALL_HINT,
+    FlashService,
+    list_serial_ports,
+)
 from services.test_service import Check, SimulatorTestService
 from services.toolchain import AvrToolchain
 
@@ -133,13 +138,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     build = BuildService().build(firmware, analysis.mcu, args.output, f_cpu_hz=args.f_cpu)
     if not build.ok:
-        print("Build FAILED — not running checks", file=sys.stderr)
+        print("Build FAILED - not running checks", file=sys.stderr)
         print(build.diagnostics, file=sys.stderr)
         return 1
     print(f"Build OK   flash {build.memory.flash_percent} %, RAM {build.memory.ram_percent} %")
 
     if not AvrToolchain.simulator_available():
-        print("Simulator (avr-gdb) not available — checks NOT run.", file=sys.stderr)
+        print("Simulator (avr-gdb) not available; checks NOT run.", file=sys.stderr)
         return 1
 
     from codegen.generator import _resolve_sensor  # noqa: PLC0415 — internal detail
@@ -163,6 +168,81 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     print(f"\n{report.summary()} on a simulated {analysis.mcu.name}")
     return 0 if report.ok else 1
+
+
+def cmd_ports(args: argparse.Namespace) -> int:
+    ports = list_serial_ports()
+    if not ports:
+        print("No serial ports found. Is the board plugged in?")
+        return 1
+    print("Serial ports:")
+    for port in ports:
+        print(f"  {port}")
+    print("\nPass one to `flash --port` — it is never chosen for you.")
+    return 0
+
+
+def cmd_hex(args: argparse.Namespace) -> int:
+    analysis, firmware = _load(args.config)
+    build = BuildService().build(firmware, analysis.mcu, args.output, f_cpu_hz=args.f_cpu)
+    if not build.ok:
+        print("Build FAILED", file=sys.stderr)
+        print(build.diagnostics, file=sys.stderr)
+        return 1
+
+    toolchain = AvrToolchain()
+    hex_path = toolchain.elf_to_hex(build.elf_path, Path(args.output) / "firmware.hex")
+    bin_path = toolchain.elf_to_bin(build.elf_path, Path(args.output) / "firmware.bin")
+
+    print(f"{hex_path}  ({hex_path.stat().st_size} B of Intel HEX)")
+    print(f"{bin_path}  ({bin_path.stat().st_size} B raw image)")
+    return 0
+
+
+def cmd_flash(args: argparse.Namespace) -> int:
+    if not FlashService.is_available():
+        print(AVRDUDE_INSTALL_HINT, file=sys.stderr)
+        return 1
+
+    analysis, firmware = _load(args.config)
+    build = BuildService().build(firmware, analysis.mcu, args.output, f_cpu_hz=args.f_cpu)
+    if not build.ok:
+        print("Build FAILED - nothing was written to the board", file=sys.stderr)
+        print(build.diagnostics, file=sys.stderr)
+        return 1
+
+    if not build.memory.fits:
+        print("Firmware does not fit on this part - refusing to flash", file=sys.stderr)
+        return 1
+
+    hex_path = AvrToolchain().elf_to_hex(build.elf_path, Path(args.output) / "firmware.hex")
+    service = FlashService()
+
+    action = "Would write" if args.dry_run else "Writing"
+    print(f"{action} {build.memory.flash_used_bytes} B to {analysis.mcu.name} on {args.port}")
+    sys.stdout.flush()  # keep ordering sane when stderr follows
+
+    result = service.flash(
+        hex_path,
+        analysis.mcu,
+        port=args.port,
+        dry_run=args.dry_run,
+        verify=not args.no_verify,
+    )
+
+    if not result.ok:
+        print(f"Flash {result.summary()}", file=sys.stderr)
+        if args.verbose:
+            print(result.diagnostics, file=sys.stderr)
+        return 1
+
+    print(f"OK - {result.summary()}")
+    if not args.dry_run:
+        print(f"Listening at {UART_BAUD_HINT} baud will show the sensor readings.")
+    return 0
+
+
+UART_BAUD_HINT = 9600
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -201,6 +281,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_common(verify)
     verify.set_defaults(func=cmd_verify)
+
+    hex_cmd = subparsers.add_parser("hex", help="build and emit a flashable .hex/.bin")
+    add_common(hex_cmd)
+    hex_cmd.set_defaults(func=cmd_hex)
+
+    ports = subparsers.add_parser("ports", help="list serial ports you could flash to")
+    ports.set_defaults(func=cmd_ports)
+
+    flash = subparsers.add_parser("flash", help="build and write the firmware to a board")
+    add_common(flash)
+    flash.add_argument(
+        "--port", required=True,
+        help="serial port of the board (required — never guessed; see `ports`)",
+    )
+    flash.add_argument(
+        "--dry-run", action="store_true",
+        help="talk to the board and report what would happen, without writing",
+    )
+    flash.add_argument(
+        "--no-verify", action="store_true",
+        help="skip avrdude's read-back verification (not recommended)",
+    )
+    flash.add_argument("-v", "--verbose", action="store_true", help="show avrdude output")
+    flash.set_defaults(func=cmd_flash)
 
     return parser
 

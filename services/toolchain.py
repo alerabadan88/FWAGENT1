@@ -128,6 +128,49 @@ class AvrToolchain:
             return False
         return True
 
+    @property
+    def objcopy_path(self) -> Path:
+        """Path to ``avr-objcopy``, which turns an ELF into a flashable image."""
+        suffix = ".exe" if os.name == "nt" else ""
+        candidate = self.gcc_path.parent / f"avr-objcopy{suffix}"
+        if not candidate.is_file():
+            raise ToolchainNotFoundError(
+                f"avr-objcopy was not found next to {self.gcc_path}. {self.install_hint}"
+            )
+        return candidate
+
+    def elf_to_hex(self, elf: str | Path, output: str | Path) -> Path:
+        """Extract the flashable image as Intel HEX, which is what avrdude wants.
+
+        ``.eeprom`` is dropped: it is not part of the program image, and leaving
+        it in produces a HEX file whose addresses avrdude would reject.
+        """
+        return self._objcopy(elf, output, fmt="ihex")
+
+    def elf_to_bin(self, elf: str | Path, output: str | Path) -> Path:
+        """Extract the same image as a raw binary."""
+        return self._objcopy(elf, output, fmt="binary")
+
+    def _objcopy(self, elf: str | Path, output: str | Path, fmt: str) -> Path:
+        elf = Path(elf)
+        output = Path(output)
+        if not elf.is_file():
+            raise CompilationError(f"ELF file does not exist: {elf}")
+
+        result = self._run([
+            str(self.objcopy_path),
+            "-O", fmt,
+            "-R", ".eeprom",
+            str(elf),
+            str(output),
+        ])
+        if not result.ok:
+            raise CompilationError(f"avr-objcopy failed: {result.diagnostics}")
+        if not output.is_file():
+            raise CompilationError(f"avr-objcopy reported success but wrote no {output}")
+
+        return output
+
     def section_sizes(self, elf: str | Path) -> dict[str, int]:
         """Read real ``.text``/``.data``/``.bss`` sizes out of a built ELF."""
         elf = Path(elf)
