@@ -119,12 +119,23 @@ def test_non_avr_mcu_is_rejected():
         generate_firmware(analysis)
 
 
-def test_i2c_sensor_is_rejected_by_the_avr_generator():
+def test_an_i2c_part_with_no_driver_is_rejected():
+    """I2C itself is supported now; a part without a driver still is not."""
     analysis = PCBAnalysis(
         mcu=MCU(name="ATmega328P", family="AVR", flash_kb=32, ram_kb=2, clock_mhz=16, gpio_pins=20, voltage=5.0),
         sensors=[
             Sensor(name="MPU6050", type="imu", interface=InterfaceType.I2C, bus="I2C1", address="0x68")
         ],
+    )
+
+    with pytest.raises(CodegenError, match="no I2C driver is implemented"):
+        generate_firmware(analysis)
+
+
+def test_spi_and_uart_sensors_are_still_rejected():
+    analysis = PCBAnalysis(
+        mcu=MCU(name="ATmega328P", family="AVR", flash_kb=32, ram_kb=2, clock_mhz=16, gpio_pins=20, voltage=5.0),
+        sensors=[Sensor(name="NEO-6M", type="gps", interface=InterfaceType.UART, bus="UART0")],
     )
 
     with pytest.raises(CodegenError, match="does not support yet"):

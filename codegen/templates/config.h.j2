@@ -25,6 +25,12 @@
 /* USART0: {{ uart_baud }} baud requested, {{ uart_actual_baud }} actual ({{ uart_error_percent }} % error). */
 #define UART_BAUD       {{ uart_baud }}
 #define UART_UBRR       {{ uart_ubrr }}
+{% if has_i2c %}
+/* TWI: {{ twi_scl_hz }} Hz requested, {{ twi_actual_hz }} Hz actual, on
+ * {{ twi_sda_pin }} (SDA) and {{ twi_scl_pin }} (SCL) -- fixed in silicon. */
+#define TWI_SCL_HZ      {{ twi_scl_hz }}
+#define TWI_TWBR        {{ twi_twbr }}
+{%- endif %}
 
 /* Watchdog: {{ watchdog_timeout_ms }} ms, against a worst-case loop of about
  * {{ watchdog_budget_ms }} ms. */

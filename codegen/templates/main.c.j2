@@ -9,6 +9,9 @@
 {%- for sensor in sensors %}
 {%- if sensor.driver_kind == 'single_wire' %}
  *   {{ sensor.name }} T=23.5C RH=45.2%
+{%- elif sensor.driver_kind.startswith('i2c_') %}
+ *   {{ sensor.name }} T=21.4C p=1013hPa
+        }
 {%- elif sensor.driver_kind == 'ultrasonic' %}
  *   {{ sensor.name }} d=1245mm
 {%- else %}
@@ -25,6 +28,9 @@
 #include "sensor.h"
 #include "uart.h"
 #include "watchdog.h"
+{%- if has_i2c %}
+#include "twi.h"
+{%- endif %}
 {%- for sensor in sensors %}
 #include "{{ sensor.symbol | lower }}.h"
 {%- endfor %}
@@ -41,6 +47,9 @@ static void board_init(void)
 {
     uart_init();
     watchdog_init();
+{%- if has_i2c %}
+    twi_init();
+{%- endif %}
 {%- for sensor in sensors %}
     {{ sensor.symbol | lower }}_init();
 {%- endfor %}
@@ -55,6 +64,9 @@ int main(void)
 {%- endif %}
 {%- if has_simple_value %}
     uint16_t reading = 0;
+{%- endif %}
+{%- if has_i2c %}
+    int32_t centi_c = 0;
 {%- endif %}
 {%- if has_adc %}
     uint16_t millivolts = 0;
@@ -79,6 +91,21 @@ int main(void)
             uart_write_string("C RH=");
             uart_write_tenths((int16_t)rh_dpm);
             uart_write_string("%\r\n");
+        } else {
+            report_error("{{ sensor.name }}", status);
+        }
+{%- elif sensor.driver_kind.startswith('i2c_') %}
+        status = {{ sensor.symbol | lower }}_read_temperature(&centi_c);
+        if (status == SENSOR_OK) {
+            uart_write_string("{{ sensor.name }} T=");
+            uart_write_tenths((int16_t)(centi_c / 10));
+            uart_write_string("C");
+            if ({{ sensor.symbol | lower }}_read(&reading) == SENSOR_OK) {
+                uart_write_string(" p=");
+                uart_write_u16(reading);
+                uart_write_string("hPa");
+            }
+            uart_write_string("\r\n");
         } else {
             report_error("{{ sensor.name }}", status);
         }

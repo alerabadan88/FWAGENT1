@@ -23,10 +23,11 @@ Both need something only you can supply: a board, and an API key.
 
 ## Functional gaps
 
-- **I2C, SPI, and UART sensors are rejected.** Most modern IoT sensors are I2C,
-  so this is the largest gap by some distance.
-- **Two sensor parts have drivers** (DHT22/AM2302, HC-SR04) plus generic ADC. A
-  schematic reports anything else as unrecognised rather than dropping it.
+- **SPI and UART sensors are rejected.** I2C now works, but only the BMP280 has
+  a driver on it; other I2C parts are rejected by name.
+- **Three sensor parts have drivers** (DHT22/AM2302, HC-SR04, BMP280) plus
+  generic ADC. A schematic reports anything else as unrecognised rather than
+  dropping it.
 - **Only KiCad netlists.** Altium is not supported.
 - **Silkscreen maps for six boards.** Others work, with MCU pins.
 - **ADC pin-to-channel for five parts** of 414. Others raise and ask.

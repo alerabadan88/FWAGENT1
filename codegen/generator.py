@@ -27,6 +27,18 @@ SUPPORTED_FAMILIES = {"AVR"}
 # Which generated driver shape a sensor gets, keyed by the part name.
 _ULTRASONIC_PARTS = {"HC-SR04"}
 _SINGLE_WIRE_PARTS = {"DHT22", "AM2302"}
+_I2C_PARTS = {"BMP280"}
+
+# Which SDA/SCL pins the TWI peripheral is hard-wired to, per part. These
+# are fixed in silicon -- not a choice -- so they are looked up, and a part
+# that is not here is refused rather than assumed to match the 328P.
+_TWI_PINS = {
+    "atmega328p": ("PC4", "PC5"),
+    "atmega168": ("PC4", "PC5"),
+    "atmega8": ("PC4", "PC5"),
+    "atmega2560": ("PD1", "PD0"),
+    "atmega32u4": ("PD1", "PD0"),
+}
 
 # Template stem backing each driver kind. Every kind has a real implementation;
 # a sensor whose part has no driver is rejected rather than stubbed.
@@ -34,6 +46,7 @@ _DRIVER_TEMPLATES = {
     "adc": "adc",
     "ultrasonic": "hcsr04",
     "single_wire": "dht22",
+    "i2c_bmp280": "bmp280",
 }
 
 
@@ -49,6 +62,8 @@ class RenderedSensor:
     resolved_pins: dict[str, McuPin]
     adc_channels: dict[str, int]
     required: bool
+    # I2C parts are addressed rather than pinned; SDA and SCL belong to the MCU.
+    address: str | None = None
 
 
 @dataclass
@@ -79,10 +94,13 @@ def _c_symbol(name: str) -> str:
 
 
 def _resolve_sensor(sensor: Sensor, device=None, board: str | None = None) -> RenderedSensor:
-    if sensor.interface in (InterfaceType.I2C, InterfaceType.SPI, InterfaceType.UART):
+    if sensor.interface == InterfaceType.I2C:
+        return _resolve_i2c_sensor(sensor, device)
+
+    if sensor.interface in (InterfaceType.SPI, InterfaceType.UART):
         raise CodegenError(
             f"sensor '{sensor.name}' uses {sensor.interface.value}, which the AVR "
-            f"generator does not support yet (only GPIO and ADC)"
+            f"generator does not support yet (GPIO, ADC and I2C are supported)"
         )
 
     if not sensor.pins:
@@ -126,6 +144,51 @@ def _resolve_sensor(sensor: Sensor, device=None, board: str | None = None) -> Re
         driver_kind=driver_kind,
         resolved_pins=resolved,
         adc_channels=adc_channels,
+        required=sensor.required,
+    )
+
+
+def _resolve_i2c_sensor(sensor: Sensor, device) -> RenderedSensor:
+    """An I2C sensor is identified by address; SDA and SCL belong to the part."""
+    part = sensor.name.upper().replace("-", "")
+    if part not in _I2C_PARTS:
+        raise CodegenError(
+            f"no I2C driver is implemented for '{sensor.name}' "
+            f"(implemented: {sorted(_I2C_PARTS)})"
+        )
+
+    if device is not None and not device.has("i2c"):
+        raise CodegenError(
+            f"{device.part} has no TWI peripheral, so '{sensor.name}' cannot be "
+            f"driven over I2C on this part"
+        )
+
+    if not sensor.address:
+        raise CodegenError(f"I2C sensor '{sensor.name}' has no address")
+
+    try:
+        address = int(str(sensor.address), 0)
+    except ValueError as exc:
+        raise CodegenError(
+            f"'{sensor.address}' is not a usable I2C address for '{sensor.name}'"
+        ) from exc
+
+    # 7-bit addressing: 0x00-0x07 and 0x78-0x7F are reserved by the spec.
+    if not 0x08 <= address <= 0x77:
+        raise CodegenError(
+            f"I2C address {sensor.address} for '{sensor.name}' is outside the "
+            f"usable 7-bit range 0x08-0x77"
+        )
+
+    return RenderedSensor(
+        name=sensor.name,
+        type=sensor.type,
+        interface=sensor.interface,
+        symbol=_c_symbol(sensor.name),
+        driver_kind=f"i2c_{part.lower()}",
+        resolved_pins={},
+        adc_channels={},
+        address=f"0x{address:02X}u",
         required=sensor.required,
     )
 
@@ -262,6 +325,50 @@ def _build_id(
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:8]
 
 
+def _twi_settings(f_cpu_hz: int, scl_hz: int, part: str) -> dict[str, object]:
+    """Compute TWBR, and refuse rates the hardware cannot actually produce.
+
+    SCL = F_CPU / (16 + 2 * TWBR * prescaler). With prescaler 1 the datasheet
+    requires TWBR >= 10 for master mode; below that the peripheral misbehaves
+    rather than merely running fast, so it is an error, not a warning.
+    """
+    if scl_hz <= 0:
+        raise CodegenError(f"I2C clock must be positive, got {scl_hz}")
+
+    twbr = round((f_cpu_hz / scl_hz - 16) / 2)
+
+    if twbr < 10:
+        fastest = f_cpu_hz / (16 + 2 * 10)
+        raise CodegenError(
+            f"an I2C clock of {scl_hz} Hz needs TWBR={twbr}, but master mode "
+            f"requires at least 10. The fastest reachable rate at {f_cpu_hz} Hz "
+            f"is about {fastest:.0f} Hz."
+        )
+    if twbr > 255:
+        raise CodegenError(
+            f"an I2C clock of {scl_hz} Hz needs TWBR={twbr}, which does not fit "
+            f"in the 8-bit register. Raise the clock or use a prescaler."
+        )
+
+    actual = f_cpu_hz / (16 + 2 * twbr)
+    sda, scl = _TWI_PINS.get(part, (None, None))
+    if sda is None:
+        raise CodegenError(
+            f"which pins carry TWI on {part} is not recorded "
+            f"(recorded for: {sorted(_TWI_PINS)}). They are fixed in silicon, "
+            f"so they have to be stated rather than assumed."
+        )
+
+    return {
+        "twi_scl_hz": scl_hz,
+        "twi_twbr": twbr,
+        "twi_actual_hz": int(round(actual)),
+        "twi_bit_us": round(1e6 / actual, 1),
+        "twi_sda_pin": sda,
+        "twi_scl_pin": scl,
+    }
+
+
 def _lookup_device(mcu_name: str) -> "DeviceFacts":
     """Get the part's real facts from the toolchain.
 
@@ -297,6 +404,7 @@ def generate_firmware(
     loop_period_ms: int = 2000,
     sensor_settle_ms: int = 60,
     uart_baud: int = 9600,
+    i2c_clock_hz: int = 100_000,
     device: "DeviceFacts | None" = None,
     firmware_version: str = "0.1.0",
 ) -> GeneratedFirmware:
@@ -333,6 +441,7 @@ def generate_firmware(
         "has_single_wire": any(s.driver_kind == "single_wire" for s in sensors),
         "has_ultrasonic": any(s.driver_kind == "ultrasonic" for s in sensors),
         "has_adc": any(s.driver_kind == "adc" for s in sensors),
+        "has_i2c": any(s.driver_kind.startswith("i2c_") for s in sensors),
         "device": device,
         "firmware_version": firmware_version,
         "build_id": _build_id(
@@ -344,8 +453,13 @@ def generate_firmware(
         "usart": device.usart_suffix,
         **_uart_settings(f_cpu_hz, uart_baud),
     }
+
+    if context["has_i2c"]:
+        context.update(_twi_settings(f_cpu_hz, i2c_clock_hz, device.part))
     # main.c declares a shared uint16_t for every driver that reports one value.
-    context["has_simple_value"] = context["has_ultrasonic"] or context["has_adc"]
+    context["has_simple_value"] = (
+        context["has_ultrasonic"] or context["has_adc"] or context["has_i2c"]
+    )
 
     env = _environment()
     files = {
@@ -357,6 +471,12 @@ def generate_firmware(
         "watchdog.c": env.get_template("drivers/watchdog.c.j2").render(**context),
         "main.c": env.get_template("main.c.j2").render(**context),
     }
+
+    # The I2C bus driver is shared by every device on it, so it is emitted
+    # once rather than per sensor.
+    if context["has_i2c"]:
+        files["twi.h"] = env.get_template("drivers/twi.h.j2").render(**context)
+        files["twi.c"] = env.get_template("drivers/twi.c.j2").render(**context)
 
     # One driver pair per sensor, named after the sensor so two parts of the
     # same kind on one board don't collide.

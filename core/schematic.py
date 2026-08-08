@@ -29,6 +29,14 @@ KNOWN_SENSOR_PARTS = {
     "AM2302": ("temperature_humidity", InterfaceType.GPIO),
     "HC-SR04": ("ultrasonic_distance", InterfaceType.GPIO),
     "HCSR04": ("ultrasonic_distance", InterfaceType.GPIO),
+    "BMP280": ("pressure_temperature", InterfaceType.I2C),
+}
+
+# An I2C device's address is set by strapping a pin, not by the netlist, so
+# it has to be stated. A default is offered because it is the commoner
+# strapping, and it is reported rather than applied silently.
+DEFAULT_I2C_ADDRESSES = {
+    "BMP280": "0x76",
 }
 
 
@@ -143,6 +151,31 @@ def analyse_netlist(netlist: Netlist, catalog, board: str | None = None) -> Sche
             continue
 
         sensor_type, interface = known
+
+        if interface == InterfaceType.I2C:
+            # The bus pins are the MCU's, and the address is a strap the
+            # netlist does not record. Say which was assumed.
+            address = DEFAULT_I2C_ADDRESSES.get(_normalize_part(component.value))
+            if address is None:
+                report.unrecognised_parts.append(
+                    f"{ref} ({component.value}) is on I2C but its address is not "
+                    f"known and a netlist does not carry one"
+                )
+                continue
+            report.notes.append(
+                f"{component.value} address assumed to be {address}; a netlist "
+                f"cannot show it, since it is set by strapping a pin"
+            )
+            sensors.append(Sensor(
+                name=component.value,
+                type=sensor_type,
+                interface=interface,
+                bus="I2C1",
+                address=address,
+                required=True,
+            ))
+            continue
+
         sensors.append(Sensor(
             name=component.value,
             type=sensor_type,

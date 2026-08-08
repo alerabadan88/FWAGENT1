@@ -11,7 +11,13 @@ typedef enum {
     SENSOR_ERR_TIMEOUT = 1,
     SENSOR_ERR_CHECKSUM = 2,
     SENSOR_ERR_ARG = 3,
-    SENSOR_ERR_OUT_OF_RANGE = 4
+    SENSOR_ERR_OUT_OF_RANGE = 4,
+    /* Nothing acknowledged the address: wrong address, or not wired. */
+    SENSOR_ERR_NO_DEVICE = 5,
+    /* The device answered but the transfer went wrong partway. */
+    SENSOR_ERR_BUS = 6,
+    /* It answered, and identified itself as something else. */
+    SENSOR_ERR_WRONG_PART = 7
 } sensor_status_t;
 
 #endif /* SENSOR_H */

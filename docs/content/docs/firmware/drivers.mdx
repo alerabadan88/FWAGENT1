@@ -12,6 +12,7 @@ placeholder that compiles and does nothing.
 | Any ADC sensor | Single-ended conversion against AVcc, /128 prescaler — keeps the ADC clock at 125 kHz, inside the window the ATmega328P needs for full 10-bit accuracy. Also exposes `_read_mv()` scaled to the supply rail. |
 | DHT22 / AM2302 | Full single-wire protocol: ≥1 ms start pulse, response handshake, 40-bit frame decoded by timing each bit's high phase against a 45 µs threshold, checksum verified, sign-flag handling on the temperature word. Interrupts masked for the frame. |
 | HC-SR04 | 10 µs trigger, echo width timed with **Timer1** (/64 prescaler, 4 µs/tick) rather than a delay loop, so readings do not drift with compiler output. Range-checked against the 4 m datasheet ceiling. |
+| BMP280 (I2C) | Chip ID verified before anything else, calibration read once, and Bosch's published fixed-point compensation transcribed rather than reinvented. Shares a TWI bus driver whose every wait is bounded. |
 
 Failures are typed — `SENSOR_ERR_TIMEOUT`, `SENSOR_ERR_CHECKSUM`,
 `SENSOR_ERR_OUT_OF_RANGE`, `SENSOR_ERR_ARG` — and a failed read leaves the
@@ -32,7 +33,29 @@ a simulated MCU and is checked against known values. **The timing is not.**
 Bit thresholds and echo windows come from datasheets; confirming them needs a
 scope or a physical sensor.
 
+## The I2C bus
+
+`twi.c` is emitted once and shared by every device on the bus. Two decisions in
+it are worth knowing:
+
+**Every wait on `TWINT` is bounded.** The usual way this peripheral is written
+is `while (!(TWCR & (1<<TWINT)));`, which is a latent hang: a device that never
+releases SDA, or a bus with no pull-ups, stops the firmware dead with no
+diagnostic. Here a stalled transfer returns `SENSOR_ERR_TIMEOUT` and releases
+the bus rather than leaving SCL held low, which would wedge every other device
+on it too.
+
+**The chip ID is checked at startup.** A BME280 has the same package, the same
+address, and one extra humidity channel — and it is what people actually have
+when this check fails. It answers `0x60` where a BMP280 answers `0x58`, so a
+mismatch is reported as `SENSOR_ERR_WRONG_PART` rather than its registers being
+read as if it were the other part.
+
+The bit rate is computed from the clock and validated: master mode needs
+TWBR ≥ 10, and a rate below that is a generation-time error rather than a
+peripheral that misbehaves on the bench.
+
 ## Not supported
 
-I2C, SPI, and UART sensors are **rejected**, not silently mishandled. Most
-modern IoT sensors are I2C, so this is the largest functional gap.
+SPI and UART sensors are **rejected**, not silently mishandled. On I2C, only
+the BMP280 has a driver; other parts are rejected by name.
