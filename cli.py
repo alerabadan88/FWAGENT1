@@ -170,6 +170,98 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_chat(args: argparse.Namespace) -> int:
+    """Interview the user about a board, then generate from the answers."""
+    from agents.extractor import ExtractionError, HardwareExtractor
+    from agents.interview import Interview
+    from agents.normalizer import NormalizationError
+
+    print("Describe the board and what it should do. Empty line to submit.\n")
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("> " if not lines else "  ")
+        except EOFError:
+            break
+        if not line.strip():
+            break
+        lines.append(line)
+
+    description = "\n".join(lines).strip()
+    if not description:
+        print("Nothing to work with.", file=sys.stderr)
+        return 2
+
+    try:
+        interview = Interview()
+        state = interview.start(description)
+    except ExtractionError as exc:
+        print(f"Could not read that: {exc}", file=sys.stderr)
+        return 2
+
+    if state.extraction.unsupported:
+        print("\nThis tool cannot do the following, so it is not in the plan:")
+        for item in state.extraction.unsupported:
+            print(f"  - {item}")
+
+    if state.extraction.assumptions:
+        print("\nFilled in from what you said (correct any of these below):")
+        for item in state.extraction.assumptions:
+            print(f"  - {item}")
+
+    print()
+    for question in state.pending():
+        suffix = f" [{question.default}]" if question.default else ""
+        if question.options:
+            suffix = f" ({'/'.join(question.options)}){suffix}"
+        print(f"\n{question.question}{suffix}")
+        print(f"  why: {question.why}")
+        try:
+            answer = input("  > ").strip()
+        except EOFError:
+            answer = ""
+        if not answer and question.default:
+            answer = question.default
+            print(f"  using {answer}")
+        if answer:
+            state.answer(question.field, answer)
+
+    try:
+        outcome = Interview.finish(state)
+    except NormalizationError as exc:
+        print(f"\nStill incomplete: {exc}", file=sys.stderr)
+        return 2
+
+    if outcome.conflicts:
+        print("\nThese cannot all be true at once:", file=sys.stderr)
+        for conflict in outcome.conflicts:
+            print(f"  - {conflict}", file=sys.stderr)
+        print("\nNo firmware generated.", file=sys.stderr)
+        return 1
+
+    spec = outcome.spec
+    print(f"\nBrief: {outcome.analysis.mcu.name}, {len(outcome.analysis.sensors)} sensor(s), "
+          f"loop {spec.loop_period_ms} ms, {spec.uart_baud} baud, {spec.f_cpu_hz} Hz")
+
+    firmware = generate_firmware(
+        outcome.analysis,
+        f_cpu_hz=spec.f_cpu_hz,
+        loop_period_ms=spec.loop_period_ms,
+        uart_baud=spec.uart_baud,
+    )
+    build = BuildService().build(
+        firmware, outcome.analysis.mcu, args.output, f_cpu_hz=spec.f_cpu_hz
+    )
+    if not build.ok:
+        print("Build FAILED", file=sys.stderr)
+        print(build.diagnostics, file=sys.stderr)
+        return 1
+
+    print(f"Build OK   flash {build.memory.flash_percent} %, RAM {build.memory.ram_percent} %")
+    print(f"Sources in {Path(args.output).resolve()}")
+    return 0
+
+
 def cmd_ports(args: argparse.Namespace) -> int:
     ports = list_serial_ports()
     if not ports:
@@ -288,6 +380,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     ports = subparsers.add_parser("ports", help="list serial ports you could flash to")
     ports.set_defaults(func=cmd_ports)
+
+    chat = subparsers.add_parser(
+        "chat",
+        help="describe a board in plain language; the agent asks what it needs, then builds",
+    )
+    chat.add_argument(
+        "-o", "--output", type=Path, default=Path("build"),
+        help="output directory (default: build/)",
+    )
+    chat.set_defaults(func=cmd_chat)
 
     flash = subparsers.add_parser("flash", help="build and write the firmware to a board")
     add_common(flash)

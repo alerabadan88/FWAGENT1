@@ -9,11 +9,11 @@ Takes a hardware description (JSON config today, EDA netlists later) and generat
 | `core/` | Done — hardware model, JSON config parser, SQLite parts catalog |
 | `codegen/` | Done for AVR — real per-sensor drivers plus UART reporting |
 | `services/` | Toolchain, driver registry/fetcher, build service, and simulator test service — all done |
-| `agents/` | Not started |
+| `agents/` | Interview agent done - reads a description, asks what it needs, validates into a brief |
 | `api/` | Not started |
 | `docs/` | Fumadocs site scaffolded; page content still stubs |
 
-106 tests, all passing.
+142 tests, all passing.
 
 ## Install
 
@@ -42,9 +42,12 @@ Tests requiring `avr-gcc` skip (visibly) when it is absent instead of faking a p
 ## End-to-end today
 
 ```bash
+./.venv/Scripts/python.exe cli.py chat                                      # describe a board in prose
 ./.venv/Scripts/python.exe cli.py inspect examples/arduino-uno/config.json
 ./.venv/Scripts/python.exe cli.py build   examples/arduino-uno/config.json
 ./.venv/Scripts/python.exe cli.py verify  examples/arduino-uno/config.json
+./.venv/Scripts/python.exe cli.py ports                                     # then
+./.venv/Scripts/python.exe cli.py flash   examples/arduino-uno/config.json --port COM3
 ```
 
 `verify` builds the firmware and then runs the drivers' arithmetic **on a simulated
@@ -72,7 +75,9 @@ executions, not assertions about source text.
 - **Only AVR / ATmega328P.** The ESP32 example in `examples/` parses fine but is rejected by codegen — generating Xtensa would need a toolchain this project cannot currently validate against.
 - **Drivers are real or the part is rejected.** ADC, DHT22, and HC-SR04 have working implementations; a part with no driver raises `CodegenError` instead of emitting a stub.
 - **Verified in simulation, not on hardware.** The drivers' arithmetic runs on a simulated ATmega328P, but the timing-critical paths (DHT22 bit thresholds, HC-SR04 echo timing) come from datasheets and need a scope or a real sensor to confirm.
-- **The firmware reports over UART** at 9600 baud 8N1; nothing is flashed automatically yet (`avrdude` is installed but not wired up).
+- **The firmware reports over UART** at 9600 baud 8N1 (configurable through the interview).
+- **Flashing is wired up but unproven on hardware.** No board was connected to the machine this was built on; only the failure paths were exercised.
+- **The interview agent has not made a live API call.** No credential was available; the deterministic half is fully tested offline.
 - **No netlist parsing yet** — `parse_netlist_file()` raises `NotImplementedError`.
 
 ## Where drivers come from

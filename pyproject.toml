@@ -7,6 +7,7 @@ dependencies = [
     "pydantic>=2.6",
     "networkx>=3.2",
     "jinja2>=3.1",
+    "anthropic>=0.60",
 ]
 
 [project.optional-dependencies]
@@ -25,4 +26,4 @@ build-backend = "setuptools.build_meta"
 codegen = ["templates/*.j2"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "services*", "codegen*"]
+include = ["core*", "services*", "codegen*", "agents*"]
