@@ -1,0 +1,252 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:91f4b5f0-d9ad-4ea8-8654-30ddbcbc7566",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-08T19:26:08+00:00",
+    "tools": [
+      {
+        "vendor": "GNU",
+        "name": "avr-gcc",
+        "version": "16.1.0"
+      },
+      {
+        "vendor": "fw-automation-agent",
+        "name": "generator",
+        "version": "0.1.0"
+      }
+    ],
+    "component": {
+      "type": "firmware",
+      "name": "atmega328p-firmware",
+      "version": "0.1.0",
+      "description": "Generated firmware for atmega328p, build 765e0d32"
+    },
+    "properties": [
+      {
+        "name": "fwagent:build_id",
+        "value": "765e0d32"
+      },
+      {
+        "name": "fwagent:target",
+        "value": "atmega328p"
+      },
+      {
+        "name": "fwagent:core",
+        "value": "avr5"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "avr-libc",
+      "version": "2.3.2",
+      "scope": "required",
+      "description": "C runtime linked into the firmware image",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "name": "config.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1cf8334c25df2beba6ffeb39d66c0b431a9b914fe930e8a3e63caa6cbe8307a1"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "dht22.c",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "46f825bc6a4459e58c7d37bec669bf38bb36e93eb0f84524c292935d27f77fda"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "dht22.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7c6477d04b9c7895f41177c1038a03c035214f54de3f6627f4a93c68173a04b4"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "hc_sr04.c",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a8ade63f4887916775086f89742f6d1cc4889179ea890519bc94d556c92b847e"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "hc_sr04.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4709c5c020fc82ae9df598c9b67651f7eaaf5f90f7b03074c6ee4c3fc1a49276"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "ldr.c",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "df7ddb116c29ed1adb13d07b969801a7aafd3adea2e87ae81c6c5b40173b7f00"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "ldr.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fd8e461f04a76173cb78df561853a91378cc27b932430f24ce4d23766a2ea4ee"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "main.c",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c4274a3282fc905decf520265eeb69f63889124c20b5cd2dcdf9c82938b787f6"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "sensor.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3efa6ec684c986a3cdb3f38fde56ffe7634de0c594abc9e310df5e285a14f2c4"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "uart.c",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7a962a624be54700979e1b9a08a8ff622bc80efcdc081145c0290e9ef4ef1ec2"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "uart.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a552933cc7728b0e5b8c049ec39c61f6b17d5b44ad6e018ac6b9ef30043f65fc"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "watchdog.c",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4a160d188154fefb80611a7ba8fef9570fc3c72f663d6c27567b791a9035980d"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "watchdog.h",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c43a290e52ff3a9c12e384d8ae99e9a333efa458fa62efedbe99b9caf120b2f3"
+        }
+      ],
+      "description": "generated firmware source"
+    },
+    {
+      "type": "file",
+      "name": "firmware.elf",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8526699111ea128a39acdd1c70dfe498f25b12fd1fbbd18477bfbf08bd54d110"
+        }
+      ],
+      "description": "build artefact (elf)"
+    },
+    {
+      "type": "file",
+      "name": "firmware.hex",
+      "version": "0.1.0",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d2c948b54d644d89446de1b4afc1b263122cceb6b35a7c16fb8ab51227526ea2"
+        }
+      ],
+      "description": "build artefact (hex)"
+    }
+  ]
+}
