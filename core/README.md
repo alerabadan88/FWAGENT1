@@ -2,14 +2,14 @@
 
 Core library: hardware data model, EDA/config parsing, and the MCU/sensor catalog. No AI logic — pure data structures, parsing, and validation.
 
-## Status
+## Status — module complete
 
-- `exceptions.py` — done. Project-wide exception hierarchy: `FWAgentError` (base), `HardwareValidationError`, `EDAParseError`.
-- `hardware_model.py` — done. Pydantic models `MCU`, `Sensor`, `PCBAnalysis`; `PCBAnalysis` validates I2C bus/address conflicts at construction time and renders to a `networkx.Graph` via `.to_graph()`.
+- `exceptions.py` — `FWAgentError` (base), `HardwareValidationError`, `EDAParseError`, `CatalogError`.
+- `hardware_model.py` — Pydantic models `MCU`, `Sensor`, `PCBAnalysis`; `PCBAnalysis` validates I2C bus/address conflicts at construction time and renders to a `networkx.Graph` via `.to_graph()`.
 - `eda_parser.py` — JSON config format done (`parse_config_file`, `parse_config_dict`). Netlist parsing (`parse_netlist_file`) raises `NotImplementedError` — not built yet.
-- `catalog.py` — not started.
+- `catalog.py` — SQLite catalog of known MCU/sensor parts with real CRUD (`Catalog`, `SensorSpec`). Works in-memory or against a file on disk.
 
-Covered by 15 tests in `tests/`, all passing against the real fixture files in `tests/fixtures/`.
+28 tests in `tests/`, all passing against real fixture files in `tests/fixtures/`.
 
 ## Input format notes
 
