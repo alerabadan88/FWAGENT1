@@ -145,6 +145,7 @@ class AvrToolchain:
         f_cpu_hz: int | None = None,
         include_dirs: tuple[str | Path, ...] = (),
         optimization: str = "-Os",
+        extra_flags: tuple[str, ...] = (),
     ) -> CompileResult:
         """Run ``-fsyntax-only`` over a real source file.
 
@@ -164,6 +165,7 @@ class AvrToolchain:
         if f_cpu_hz is not None:
             command.append(f"-DF_CPU={f_cpu_hz}UL")
         command.extend(f"-I{Path(d)}" for d in include_dirs)
+        command.extend(extra_flags)
         command.extend(["-fsyntax-only", str(source)])
 
         return self._run(command)

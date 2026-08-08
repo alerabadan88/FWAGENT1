@@ -113,7 +113,12 @@ class BuildService:
 
         firmware.write_to(build_dir)
 
+        # Every generated .c is compiled; main.c leads so link order is stable.
+        generated_sources = sorted(
+            name for name in firmware.files if name.endswith(".c") and name != "main.c"
+        )
         sources: list[str | Path] = [build_dir / "main.c"]
+        sources.extend(build_dir / name for name in generated_sources)
         include_dirs: list[str | Path] = [build_dir]
         for driver in drivers:
             sources.extend(driver.source_files)

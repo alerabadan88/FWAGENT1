@@ -13,6 +13,9 @@
 
 #define SENSOR_COUNT    {{ sensors | length }}
 #define LOOP_PERIOD_MS  {{ loop_period_ms }}
+/* Gap between consecutive sensor reads: the HC-SR04 needs its previous
+ * burst to decay before the next trigger. */
+#define SENSOR_SETTLE_MS {{ sensor_settle_ms }}
 
 {% for sensor in sensors %}
 /* {{ sensor.name }} - {{ sensor.type }} over {{ sensor.interface.value }} */

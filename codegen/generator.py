@@ -22,10 +22,14 @@ SUPPORTED_FAMILIES = {"AVR"}
 
 # Which generated driver shape a sensor gets, keyed by the part name.
 _ULTRASONIC_PARTS = {"HC-SR04"}
+_SINGLE_WIRE_PARTS = {"DHT22", "AM2302"}
 
-_PROTOCOL_NOTES = {
-    "DHT22": "single-wire timing protocol (start pulse + 40-bit response)",
-    "HC-SR04": "trigger pulse and echo pulse-width timing",
+# Template stem backing each driver kind. Every kind has a real implementation;
+# a sensor whose part has no driver is rejected rather than stubbed.
+_DRIVER_TEMPLATES = {
+    "adc": "adc",
+    "ultrasonic": "hcsr04",
+    "single_wire": "dht22",
 }
 
 
@@ -40,7 +44,6 @@ class RenderedSensor:
     driver_kind: str
     resolved_pins: dict[str, AvrPin]
     required: bool
-    protocol_note: str
 
 
 @dataclass
@@ -92,9 +95,14 @@ def _resolve_sensor(sensor: Sensor) -> RenderedSensor:
     elif sensor.interface == InterfaceType.ADC:
         driver_kind = "adc"
         roles = {"signal": _single_pin(sensor)}
-    else:
+    elif sensor.name.upper() in _SINGLE_WIRE_PARTS:
         driver_kind = "single_wire"
         roles = {"signal": _single_pin(sensor)}
+    else:
+        raise CodegenError(
+            f"no driver is implemented for part '{sensor.name}' "
+            f"(implemented: {sorted(_ULTRASONIC_PARTS | _SINGLE_WIRE_PARTS)} and any ADC sensor)"
+        )
 
     resolved = {role: map_arduino_uno_pin(label) for role, label in roles.items()}
 
@@ -112,7 +120,6 @@ def _resolve_sensor(sensor: Sensor) -> RenderedSensor:
         driver_kind=driver_kind,
         resolved_pins=resolved,
         required=sensor.required,
-        protocol_note=_PROTOCOL_NOTES.get(sensor.name, "communication protocol"),
     )
 
 
@@ -139,6 +146,7 @@ def generate_firmware(
     analysis: PCBAnalysis,
     f_cpu_hz: int = 16_000_000,
     loop_period_ms: int = 2000,
+    sensor_settle_ms: int = 60,
 ) -> GeneratedFirmware:
     """Render ``main.c`` and ``config.h`` for the given board.
 
@@ -159,13 +167,24 @@ def generate_firmware(
         "sensors": sensors,
         "f_cpu_hz": f_cpu_hz,
         "loop_period_ms": loop_period_ms,
-        "uses_adc": any(s.driver_kind == "adc" for s in sensors),
+        "sensor_settle_ms": sensor_settle_ms,
     }
 
     env = _environment()
-    return GeneratedFirmware(
-        files={
-            "config.h": env.get_template("config.h.j2").render(**context),
-            "main.c": env.get_template("main.c.j2").render(**context),
-        }
-    )
+    files = {
+        "config.h": env.get_template("config.h.j2").render(**context),
+        "sensor.h": env.get_template("sensor.h.j2").render(**context),
+        "main.c": env.get_template("main.c.j2").render(**context),
+    }
+
+    # One driver pair per sensor, named after the sensor so two parts of the
+    # same kind on one board don't collide.
+    for sensor in sensors:
+        stem = _DRIVER_TEMPLATES[sensor.driver_kind]
+        for extension in ("h", "c"):
+            template = env.get_template(f"drivers/{stem}.{extension}.j2")
+            files[f"{sensor.symbol.lower()}.{extension}"] = template.render(
+                sensor=sensor, **context
+            )
+
+    return GeneratedFirmware(files=files)
