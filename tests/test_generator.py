@@ -30,6 +30,8 @@ def test_generates_a_driver_pair_per_sensor(uno_analysis):
         "sensor.h",
         "uart.c",
         "uart.h",
+        "watchdog.c",
+        "watchdog.h",
         "dht22.c",
         "dht22.h",
         "hc_sr04.c",
@@ -107,7 +109,7 @@ def test_generated_files_are_written_to_disk(uno_analysis, tmp_path):
 
     assert (tmp_path / "main.c").read_text(encoding="utf-8").startswith("/* Generated")
     assert (tmp_path / "dht22.c").is_file()
-    assert len(written) == 11
+    assert len(written) == 13
 
 
 def test_non_avr_mcu_is_rejected():
@@ -160,7 +162,7 @@ def test_every_generated_source_survives_wall_wextra_werror(uno_analysis, tmp_pa
     toolchain = AvrToolchain()
 
     sources = sorted(name for name in firmware.files if name.endswith(".c"))
-    assert len(sources) == 5  # main + uart + one driver per sensor
+    assert len(sources) == 6  # main + uart + watchdog + one driver per sensor
 
     for name in sources:
         result = toolchain.check_syntax(

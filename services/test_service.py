@@ -50,6 +50,20 @@ int main(void)
 """
 
 
+# Sources kept out of the simulation build.
+#
+# main.c is replaced by the harness. watchdog.c is excluded for a different and
+# more awkward reason: GDB's AVR simulator does not implement the WDR
+# instruction, and faults with SIGILL on it. Since watchdog.c installs a .init3
+# hook that runs before main, linking it kills every simulated run before a
+# single check executes.
+#
+# The consequence is worth stating plainly: **the watchdog is not verified by
+# simulation.** It is verified only by compiling, and would need real hardware
+# to confirm.
+_EXCLUDED_FROM_SIMULATION = frozenset({"main.c", "watchdog.c"})
+
+
 class SimulationError(FWAgentError):
     """Raised when the simulator could not be run or its output not parsed."""
 
@@ -143,7 +157,7 @@ class SimulatorTestService:
         sources.extend(
             work_dir / name
             for name in sorted(firmware.files)
-            if name.endswith(".c") and name != "main.c"
+            if name.endswith(".c") and name not in _EXCLUDED_FROM_SIMULATION
         )
 
         elf = work_dir / "fw_test.elf"

@@ -174,6 +174,94 @@ def _uart_settings(f_cpu_hz: int, baud: int) -> dict[str, object]:
     }
 
 
+# Watchdog periods the AVR hardware actually offers, in milliseconds, with the
+# avr-libc constant that selects each. Nothing else is selectable.
+_WDT_PERIODS = [
+    (15, "WDTO_15MS"), (30, "WDTO_30MS"), (60, "WDTO_60MS"), (120, "WDTO_120MS"),
+    (250, "WDTO_250MS"), (500, "WDTO_500MS"), (1000, "WDTO_1S"), (2000, "WDTO_2S"),
+    (4000, "WDTO_4S"), (8000, "WDTO_8S"),
+]
+
+
+def _watchdog_settings(
+    loop_period_ms: int, sensor_settle_ms: int, sensor_count: int
+) -> dict[str, object]:
+    """Pick the shortest watchdog period that still clears the worst-case loop.
+
+    Too short and the device resets itself mid-normal-operation; too long and a
+    wedged loop goes unnoticed. The budget allows for the loop delay, the gaps
+    between sensors, and a slow read from each one.
+    """
+    # A blocking sensor read can take a few hundred ms before its own timeout.
+    worst_read_ms = 400
+    budget = (
+        loop_period_ms
+        + sensor_settle_ms * max(sensor_count - 1, 0)
+        + worst_read_ms * sensor_count
+    )
+    # Half again, so ordinary jitter never trips it.
+    preferred = int(budget * 1.5)
+    longest_ms, longest_constant = _WDT_PERIODS[-1]
+
+    for period, constant in _WDT_PERIODS:
+        if period >= preferred:
+            return {
+                "watchdog_timeout_ms": period,
+                "watchdog_timeout_constant": constant,
+                "watchdog_budget_ms": budget,
+                "watchdog_margin": "comfortable",
+            }
+
+    # The preferred margin does not fit, but the loop itself still does. The
+    # longest period is a real guard with less headroom -- better than none,
+    # and better than refusing to generate over a margin preference.
+    if budget < longest_ms:
+        return {
+            "watchdog_timeout_ms": longest_ms,
+            "watchdog_timeout_constant": longest_constant,
+            "watchdog_budget_ms": budget,
+            "watchdog_margin": "tight",
+        }
+
+    raise CodegenError(
+        f"a loop of about {budget} ms cannot be guarded: the longest watchdog this "
+        f"hardware offers is {longest_ms} ms, so the watchdog would fire during "
+        f"normal operation. Shorten the loop period (currently {loop_period_ms} ms) "
+        f"or read fewer sensors per cycle."
+    )
+
+
+def _build_id(
+    analysis: PCBAnalysis, f_cpu_hz: int, loop_period_ms: int,
+    uart_baud: int, firmware_version: str, part: str,
+) -> str:
+    """A short, deterministic identifier for this exact configuration.
+
+    Derived from the *inputs*, not the emitted files: the id is printed inside
+    config.h, so hashing the output would be circular. Same board and settings
+    give the same id; change any of them and it changes, which is what makes a
+    unit on a bench traceable back to a build.
+    """
+    import hashlib
+    import json
+
+    material = json.dumps(
+        {
+            "part": part,
+            "board": analysis.board,
+            "mcu": analysis.mcu.model_dump(),
+            "sensors": [s.model_dump() for s in analysis.sensors],
+            "f_cpu_hz": f_cpu_hz,
+            "loop_period_ms": loop_period_ms,
+            "uart_baud": uart_baud,
+            "version": firmware_version,
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:8]
+
+
 def _lookup_device(mcu_name: str) -> "DeviceFacts":
     """Get the part's real facts from the toolchain.
 
@@ -210,6 +298,7 @@ def generate_firmware(
     sensor_settle_ms: int = 60,
     uart_baud: int = 9600,
     device: "DeviceFacts | None" = None,
+    firmware_version: str = "0.1.0",
 ) -> GeneratedFirmware:
     """Render ``main.c`` and ``config.h`` for the given board.
 
@@ -245,6 +334,12 @@ def generate_firmware(
         "has_ultrasonic": any(s.driver_kind == "ultrasonic" for s in sensors),
         "has_adc": any(s.driver_kind == "adc" for s in sensors),
         "device": device,
+        "firmware_version": firmware_version,
+        "build_id": _build_id(
+            analysis, f_cpu_hz, loop_period_ms, uart_baud,
+            firmware_version, device.part,
+        ),
+        **_watchdog_settings(loop_period_ms, sensor_settle_ms, len(sensors)),
         # Register index of the USART this part actually has -- see DeviceFacts.
         "usart": device.usart_suffix,
         **_uart_settings(f_cpu_hz, uart_baud),
@@ -258,6 +353,8 @@ def generate_firmware(
         "sensor.h": env.get_template("sensor.h.j2").render(**context),
         "uart.h": env.get_template("drivers/uart.h.j2").render(**context),
         "uart.c": env.get_template("drivers/uart.c.j2").render(**context),
+        "watchdog.h": env.get_template("drivers/watchdog.h.j2").render(**context),
+        "watchdog.c": env.get_template("drivers/watchdog.c.j2").render(**context),
         "main.c": env.get_template("main.c.j2").render(**context),
     }
 

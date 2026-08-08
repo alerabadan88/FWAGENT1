@@ -148,8 +148,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 1
 
     from codegen.generator import _resolve_sensor  # noqa: PLC0415 — internal detail
+    from core.device_catalog import DeviceCatalog
 
-    checks = _checks_for([_resolve_sensor(s) for s in analysis.sensors])
+    # Resolving a pin needs the same context codegen had: the part, to verify
+    # the pin exists, and the board, to make sense of any silkscreen label.
+    device = DeviceCatalog().facts(analysis.mcu.name)
+    checks = _checks_for([
+        _resolve_sensor(s, device=device, board=analysis.board)
+        for s in analysis.sensors
+    ])
     if not checks:
         print("No on-target checks apply to this board.")
         return 0
@@ -300,6 +307,51 @@ def cmd_chat(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_secure(args: argparse.Namespace) -> int:
+    """Build, then emit the SBOM, digests, and an honest measures report."""
+    from core.device_catalog import DeviceCatalog
+    from services.security import assess, write_security_artifacts
+
+    analysis, firmware = _load(args.config)
+    build = BuildService().build(firmware, analysis.mcu, args.output, f_cpu_hz=args.f_cpu)
+    if not build.ok:
+        print("Build FAILED - no artefacts produced", file=sys.stderr)
+        print(build.diagnostics, file=sys.stderr)
+        return 1
+
+    toolchain = AvrToolchain()
+    hex_path = toolchain.elf_to_hex(build.elf_path, Path(args.output) / "firmware.hex")
+    device = DeviceCatalog().facts(analysis.mcu.name)
+
+    header = firmware.files["config.h"]
+    build_id = header.split("BUILD_ID")[1].split('"')[1]
+
+    written = write_security_artifacts(
+        args.output, firmware, device, build, args.firmware_version, build_id,
+        artifacts={"hex": hex_path, "elf": build.elf_path}, toolchain=toolchain,
+    )
+    report = assess(firmware, device, build, artifacts={"hex": hex_path})
+
+    print(f"Build {build_id}   flash {build.memory.flash_percent} %, "
+          f"RAM {build.memory.ram_percent} %")
+    print("\nMeasures in this build:")
+    for measure in report.implemented:
+        print(f"  [x] {measure.name}")
+    for measure in report.missing:
+        print(f"  [ ] {measure.name}")
+
+    print("\nStill the manufacturer's responsibility:")
+    for item in report.out_of_scope:
+        print(f"  - {item}")
+
+    print("\nWritten:")
+    for label, path in sorted(written.items()):
+        print(f"  {label:<9} {path}")
+
+    print("\nThis is evidence, not a compliance claim. See SECURITY.md.")
+    return 0
+
+
 def cmd_ports(args: argparse.Namespace) -> int:
     ports = list_serial_ports()
     if not ports:
@@ -426,6 +478,14 @@ def build_parser() -> argparse.ArgumentParser:
     schematic.add_argument("-o", "--output", type=Path, default=Path("build"))
     schematic.add_argument("--f-cpu", type=int, default=16_000_000)
     schematic.set_defaults(func=cmd_schematic)
+
+    secure = subparsers.add_parser(
+        "secure",
+        help="build and emit an SBOM, digests, and a report of security measures",
+    )
+    add_common(secure)
+    secure.add_argument("--firmware-version", default="0.1.0")
+    secure.set_defaults(func=cmd_secure)
 
     ports = subparsers.add_parser("ports", help="list serial ports you could flash to")
     ports.set_defaults(func=cmd_ports)

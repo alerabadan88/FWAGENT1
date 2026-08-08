@@ -24,6 +24,7 @@
 #include "config.h"
 #include "sensor.h"
 #include "uart.h"
+#include "watchdog.h"
 {%- for sensor in sensors %}
 #include "{{ sensor.symbol | lower }}.h"
 {%- endfor %}
@@ -39,6 +40,7 @@ static void report_error(const char *name, sensor_status_t status)
 static void board_init(void)
 {
     uart_init();
+    watchdog_init();
 {%- for sensor in sensors %}
     {{ sensor.symbol | lower }}_init();
 {%- endfor %}
@@ -59,9 +61,15 @@ int main(void)
 {%- endif %}
 
     board_init();
-    uart_write_string("\r\n" MCU_NAME " firmware up\r\n");
+    uart_write_string("\r\n" MCU_NAME " " FIRMWARE_VERSION " (" BUILD_ID ") up\r\n");
+    if (watchdog_caused_last_reset()) {
+        /* Surfaced rather than swallowed: from the outside, a device that is
+         * quietly rebooting in a loop looks the same as one that is working. */
+        uart_write_string("WARN previous reset was the watchdog\r\n");
+    }
 
     for (;;) {
+        watchdog_kick();
 {%- for sensor in sensors %}
 {%- if sensor.driver_kind == 'single_wire' %}
         status = {{ sensor.symbol | lower }}_read_all(&temp_dc, &rh_dpm);
@@ -102,6 +110,7 @@ int main(void)
         _delay_ms(SENSOR_SETTLE_MS);
 {%- endif %}
 {%- endfor %}
+        watchdog_kick();
         _delay_ms(LOOP_PERIOD_MS);
     }
 

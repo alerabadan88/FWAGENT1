@@ -4,6 +4,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+/* Identity, so a device on a bench can be matched to the build that produced
+ * it -- a prerequisite for knowing whether a given unit carries a fix. */
+#define FIRMWARE_VERSION "{{ firmware_version }}"
+#define BUILD_ID         "{{ build_id }}"
+
 #define MCU_NAME        "{{ mcu.name }}"
 #define MCU_FAMILY      "{{ mcu.family }}"
 #define F_CPU           {{ f_cpu_hz }}UL
@@ -20,6 +25,10 @@
 /* USART0: {{ uart_baud }} baud requested, {{ uart_actual_baud }} actual ({{ uart_error_percent }} % error). */
 #define UART_BAUD       {{ uart_baud }}
 #define UART_UBRR       {{ uart_ubrr }}
+
+/* Watchdog: {{ watchdog_timeout_ms }} ms, against a worst-case loop of about
+ * {{ watchdog_budget_ms }} ms. */
+#define WATCHDOG_TIMEOUT_MS {{ watchdog_timeout_ms }}
 
 {% for sensor in sensors %}
 /* {{ sensor.name }} - {{ sensor.type }} over {{ sensor.interface.value }} */
