@@ -62,108 +62,126 @@ def _q(field: str, question: str, why: str, options=None, default=None) -> OpenQ
     )
 
 
+def board_facts(draft: HardwareDraft) -> dict[str, str]:
+    """What naming a known board actually settles.
+
+    Saying "Arduino Uno" is not an assumption about the clock -- the board has
+    a 16 MHz crystal and its fuses are set for it. So a named board answers
+    those questions outright, and they are not asked again. An unnamed board,
+    or a bare chip, settles nothing: an ATmega328P with factory fuses runs from
+    the internal RC divided by 8, at 1 MHz.
+    """
+    known = KNOWN_BOARDS.get((draft.board_name or draft.mcu_name or "").upper())
+    if not known:
+        return {}
+
+    return {
+        "mcu_name": str(known["mcu_name"]),
+        "f_cpu_hz": str(int(known["clock_mhz"] * 1e6)),
+        "f_cpu_source": "external crystal on the board",
+        "supply_voltage": str(known["voltage"]),
+        # A named board has one broken-out serial port, wired to the USB bridge
+        # in the orientation the board defines.
+        "usart_index": "0",
+        "uart_wiring": "handled by the board's USB bridge",
+        "uart_peer": "USB-serial adapter",
+    }
+
+
+def usart_count(draft: HardwareDraft, answers: dict[str, str] | None = None) -> int:
+    """How many USARTs the part really has, asked of the toolchain.
+
+    Returns 1 when the part is not identified yet -- the question about which
+    USART is wired only makes sense once we know there is more than one.
+    """
+    from core.device_catalog import DeviceCatalog
+
+    name = (answers or {}).get("mcu_name") or draft.mcu_name
+    if not name:
+        return 1
+    try:
+        facts = DeviceCatalog().facts(name)
+    except Exception:
+        return 1
+    return max(len(facts.usart_suffixes), 1)
+
+
 def required_questions(
     draft: HardwareDraft, answers: dict[str, str] | None = None
 ) -> list[OpenQuestion]:
     """Everything still unanswered that the generator genuinely needs.
 
-    Derived from the pipeline's own requirements, so it cannot drift from what
-    the code actually consumes.
+    Enumerated by `agents/uncertainty.py`, deterministically, from what the
+    generator actually consumes -- so it cannot drift from the code, and a
+    model that fails to wonder about something cannot cause a silent default.
     """
-    answers = answers or {}
-    questions: list[OpenQuestion] = []
+    from agents.uncertainty import scan_draft
 
-    board_key = (draft.board_name or draft.mcu_name or "").upper()
-    known = KNOWN_BOARDS.get(board_key)
+    return [u.to_question() for u in scan(draft, answers)]
 
-    if not draft.mcu_name and not known and "mcu_name" not in answers:
-        questions.append(_q(
-            "mcu_name",
-            "Which microcontroller is on the board?",
-            "The pin mapping, the compiler target, and the memory budget all depend on it. "
-            "There is no safe default.",
-            options=["ATmega328P (Arduino Uno)"],
-        ))
 
-    for index, sensor in enumerate(draft.sensors):
-        interface = (sensor.interface or "").upper()
-        needs_pins = interface in {"GPIO", "ADC", "1-WIRE"}
-        key = f"sensors[{index}].pins"
+def unsupported(draft: HardwareDraft, answers: dict[str, str] | None = None) -> list[str]:
+    """What this tool cannot build for at all, checked before anything is asked.
 
-        if needs_pins and not sensor.pins and key not in answers:
-            hint = (
-                "trigger and echo pins" if sensor.name.upper() == "HC-SR04"
-                else "the pin it is wired to"
-            )
-            questions.append(_q(
-                key,
-                f"Which pin(s) is the {sensor.name} connected to? ({hint})",
-                "Firmware toggles a specific port bit; the wrong pin means the sensor is "
-                "never read and nothing reports an error.",
-            ))
+    Asking someone which pin their sensor is on, and only then telling them the
+    microcontroller is not supported, wastes their time and reads as a bug. So
+    this is checked first and stops the interview.
+    """
+    from core.device_catalog import DeviceCatalog
 
-        if interface == "I2C" and not sensor.address and f"sensors[{index}].address" not in answers:
-            questions.append(_q(
-                f"sensors[{index}].address",
-                f"What I2C address does the {sensor.name} use?",
-                "Two devices at the same address on one bus collide and both read garbage.",
-            ))
+    name = (answers or {}).get("mcu_name") or draft.mcu_name
+    if not name:
+        return []
+    if KNOWN_BOARDS.get(name.upper()) or KNOWN_BOARDS.get((draft.board_name or "").upper()):
+        return []
 
-        pkey = f"sensors[{index}].sample_period_ms"
-        if pkey not in answers:
-            floor = MIN_SAMPLE_PERIOD_MS.get(sensor.name.upper())
-            why = "How often the firmware reads it drives power draw and data freshness."
-            if floor:
-                why += f" The {sensor.name} cannot be read faster than every {floor} ms."
-            questions.append(_q(
-                pkey,
-                f"How often should the {sensor.name} be read? (in milliseconds)",
-                why,
-                default=str(max(floor or 1000, 1000)),
-            ))
+    try:
+        DeviceCatalog().facts(name)
+    except Exception:  # noqa: BLE001 - the message below is the whole point
+        return [
+            f"'{name}' is not a part this toolchain can build for. This system "
+            f"targets AVR through avr-gcc; it has no backend for other "
+            f"architectures, so there is nothing to ask about pins yet. If the "
+            f"part number is a typo, correct it and start again."
+        ]
+    return []
 
-        ckey = f"sensors[{index}].critical"
-        if ckey not in answers:
-            questions.append(_q(
-                ckey,
-                f"Is the {sensor.name} reading critical -- must a failed read be retried "
-                f"and flagged rather than just skipped?",
-                "Critical readings get retries and an explicit error on the wire; "
-                "non-critical ones are logged and the loop moves on.",
-                options=["no", "yes"],
-                default="no",
-            ))
 
-    if "loop_period_ms" not in answers:
-        questions.append(_q(
-            "loop_period_ms",
-            "How often should the whole measurement cycle run? (in milliseconds)",
-            "This sets how fresh the data is and how much power the board draws. "
-            "It is currently the single biggest thing the tool would otherwise assume.",
-            default="2000",
-        ))
+def contention(draft: HardwareDraft, answers: dict[str, str] | None = None) -> list[str]:
+    """Demands on the hardware that no answer from the user can satisfy."""
+    from agents.uncertainty import contention as _contention
 
-    if "uart_baud" not in answers:
-        questions.append(_q(
-            "uart_baud",
-            "What baud rate should the serial output use?",
-            "Whatever reads the output has to match it exactly, and not every rate is "
-            "reachable from this clock without unacceptable error.",
-            options=[str(b) for b in STANDARD_BAUDS],
-            default="9600",
-        ))
+    resolved = {**board_facts(draft), **(answers or {})}
+    return _contention(draft, usart_count=usart_count(draft, resolved))
 
-    if not draft.f_cpu_hz and "f_cpu_hz" not in answers and not known:
-        questions.append(_q(
-            "f_cpu_hz",
-            "What clock frequency does the board run at? (in Hz)",
-            "Every delay and the baud rate divisor are computed from it; a wrong value "
-            "makes all timing wrong by the same factor.",
-            options=["16000000", "8000000"],
-            default="16000000",
-        ))
 
-    return questions
+def scan(draft: HardwareDraft, answers: dict[str, str] | None = None):
+    """The raw uncertainties, with what a named board already settles applied."""
+    from agents.uncertainty import scan_draft
+
+    resolved = {**board_facts(draft), **(answers or {})}
+    return scan_draft(draft, resolved, usart_count=usart_count(draft, resolved))
+
+
+def blocking_questions(
+    draft: HardwareDraft, answers: dict[str, str] | None = None
+) -> list[OpenQuestion]:
+    """Only the ones with no safe default -- where a guess fails silently."""
+    return [u.to_question() for u in scan(draft, answers) if u.blocking]
+
+
+def assumed_defaults(draft: HardwareDraft, answers: dict[str, str] | None = None) -> list[str]:
+    """Advisory answers nobody gave, stated plainly so they can be corrected.
+
+    These are the values the build will use without being told to. Every one of
+    them fails loudly if wrong, which is why it is allowed -- but it is still
+    said out loud rather than applied quietly.
+    """
+    return [
+        f"{u.field} = {u.default} ({u.question.rstrip('?')}?)"
+        for u in scan(draft, answers)
+        if not u.blocking and u.default is not None
+    ]
 
 
 def _int_answer(answers: dict[str, str], key: str, fallback: int) -> int:
@@ -184,25 +202,62 @@ def _bool_answer(answers: dict[str, str], key: str, fallback: bool) -> bool:
 
 
 def _build_mcu(draft: HardwareDraft, answers: dict[str, str]) -> MCU:
+    """Build the MCU from the answers, asking the toolchain for the part's facts.
+
+    `KNOWN_BOARDS` only supplies what naming a *board* settles -- the crystal
+    and the supply rail. The part's own memory, ports and peripherals come from
+    the compiler's headers, so any of the 400-odd supported AVRs works here,
+    not just the two that were once hardcoded.
+    """
+    from core.device_catalog import DeviceCatalog
+
     name = answers.get("mcu_name") or draft.mcu_name or draft.board_name or ""
     known = KNOWN_BOARDS.get(name.upper()) or KNOWN_BOARDS.get((draft.board_name or "").upper())
+    part = str(known["mcu_name"]) if known else name
 
-    if known is None:
+    if not part:
+        raise NormalizationError("no microcontroller was identified, so nothing can be built")
+
+    try:
+        facts = DeviceCatalog().facts(part)
+    except Exception as exc:  # noqa: BLE001 - reported below, never swallowed
+        if known is None:
+            raise NormalizationError(
+                f"the toolchain does not know a part called '{part}', so its memory "
+                f"map and peripherals cannot be established. Check the part number "
+                f"against the marking on the package."
+            ) from exc
+        facts = None
+
+    clock_hz = _int_answer(
+        answers, "f_cpu_hz",
+        draft.f_cpu_hz or (int(known["clock_mhz"] * 1e6) if known else 0),
+    )
+    if clock_hz <= 0:
         raise NormalizationError(
-            f"no specs are known for '{name or 'this board'}'. "
-            f"Known boards: {sorted(KNOWN_BOARDS)}"
+            "the clock frequency is still unknown; it cannot be defaulted because "
+            "every delay and the baud divisor scale with it"
         )
 
-    clock_hz = _int_answer(answers, "f_cpu_hz", draft.f_cpu_hz or int(known["clock_mhz"] * 1e6))
+    voltage = draft.supply_voltage or float(
+        answers.get("supply_voltage") or (known["voltage"] if known else 0) or 0
+    )
+    if voltage <= 0:
+        raise NormalizationError("the supply voltage is still unknown")
+
+    if facts is not None:
+        return MCU(
+            name=facts.part, family="AVR",
+            flash_kb=facts.flash_kb, ram_kb=facts.ram_kb,
+            clock_mhz=clock_hz / 1e6,
+            gpio_pins=sum(facts.ports.values()) or int(known["gpio_pins"]),
+            voltage=voltage,
+        )
 
     return MCU(
-        name=str(known["mcu_name"]),
-        family=str(known["mcu_family"]),
-        flash_kb=float(known["flash_kb"]),
-        ram_kb=float(known["ram_kb"]),
-        clock_mhz=clock_hz / 1e6,
-        gpio_pins=int(known["gpio_pins"]),
-        voltage=draft.supply_voltage or float(known["voltage"]),
+        name=str(known["mcu_name"]), family=str(known["mcu_family"]),
+        flash_kb=float(known["flash_kb"]), ram_kb=float(known["ram_kb"]),
+        clock_mhz=clock_hz / 1e6, gpio_pins=int(known["gpio_pins"]), voltage=voltage,
     )
 
 
@@ -274,10 +329,16 @@ def normalize(
     answers = answers or {}
     draft = extraction.hardware
 
-    outstanding = required_questions(draft, answers)
+    # Only blocking uncertainties stop this. An advisory one has a default that
+    # fails loudly if it is wrong, and it is recorded as an assumption instead
+    # -- refusing to build over a baud rate nobody stated would be theatre.
+    outstanding = blocking_questions(draft, answers)
     if outstanding:
         fields = ", ".join(q.field for q in outstanding)
-        raise NormalizationError(f"cannot normalize yet; still unanswered: {fields}")
+        raise NormalizationError(
+            f"cannot normalize yet; these have no safe default and are still "
+            f"unanswered: {fields}"
+        )
 
     if not draft.sensors:
         raise NormalizationError("no sensors were identified, so there is nothing to read")

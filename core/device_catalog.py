@@ -89,6 +89,11 @@ class DeviceFacts:
     """Register suffix of the USART to drive: ``"0"`` for UDR0, ``"1"`` for UDR1,
     ``""`` for parts whose registers are unnumbered (UDR/UCSRA), ``None`` for
     parts with no USART at all."""
+    usart_suffixes: tuple[str, ...] = ()
+    """Every USART the part has, not just the one picked by default. An
+    ATmega2560 has four, on four different pin pairs. Which one the connector
+    is wired to is a fact about the board, so it has to be asked rather than
+    defaulted -- transmitting on an unconnected USART fails silently."""
     source: str = "avr-gcc + avr-libc headers"
 
     @property
@@ -323,6 +328,7 @@ def _facts_for(gcc_path: str, part: str) -> DeviceFacts:
     usart_suffix = suffixes[0] if suffixes else None
 
     return DeviceFacts(
+        usart_suffixes=tuple(suffixes),
         part=part,
         core=core,
         flash_bytes=sizes["FLASHEND"] + 1,

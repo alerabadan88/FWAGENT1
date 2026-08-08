@@ -191,7 +191,8 @@ def test_normalize_produces_a_validated_brief():
 
     analysis, spec = normalize(state.extraction, state.answers)
 
-    assert analysis.mcu.name == "ATmega328P"
+    # The canonical part id from the toolchain: this value becomes -mmcu.
+    assert analysis.mcu.name.lower() == "atmega328p"
     assert analysis.mcu.flash_kb == 32
     assert analysis.sensors[0].pins == {"pin": "D2"}
     assert spec.f_cpu_hz == 16_000_000
@@ -245,9 +246,13 @@ def test_an_unknown_board_cannot_be_normalized():
     answers = {
         "sensors[0].sample_period_ms": "2000", "sensors[0].critical": "no",
         "loop_period_ms": "2000", "uart_baud": "9600", "f_cpu_hz": "16000000",
+        "f_cpu_source": "external crystal", "uart_wiring": "crossed",
+        "supply_voltage": "5.0",
     }
 
-    with pytest.raises(NormalizationError, match="no specs are known"):
+    # Every question is answered, so this is not a missing-information refusal:
+    # the toolchain simply cannot build for a PIC, and says which fact is absent.
+    with pytest.raises(NormalizationError, match="does not know a part called"):
         normalize(extraction, answers)
 
 

@@ -11,7 +11,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from agents.extractor import HardwareExtractor
-from agents.normalizer import NormalizationError, check_timing, normalize, required_questions
+from agents.normalizer import (
+    NormalizationError,
+    assumed_defaults,
+    blocking_questions,
+    check_timing,
+    normalize,
+    required_questions,
+)
 from agents.schemas import ExtractionResult, FirmwareSpec, OpenQuestion
 from core.hardware_model import PCBAnalysis
 
@@ -24,7 +31,7 @@ class InterviewState:
     answers: dict[str, str] = field(default_factory=dict)
 
     def pending(self) -> list[OpenQuestion]:
-        """Required questions first — a user who quits early has answered what matters."""
+        """Blocking questions first — a user who quits early has answered what matters."""
         required = required_questions(self.extraction.hardware, self.answers)
         seen = {q.field for q in required}
         extra = [
@@ -33,12 +40,27 @@ class InterviewState:
         ]
         return required + extra
 
+    def blocking(self) -> list[OpenQuestion]:
+        """The ones with no safe default, where guessing fails silently."""
+        return blocking_questions(self.extraction.hardware, self.answers)
+
+    def assumptions(self) -> list[str]:
+        """Advisory values nobody stated, which the build would use anyway."""
+        return assumed_defaults(self.extraction.hardware, self.answers)
+
     def answer(self, field_name: str, value: str) -> None:
         self.answers[field_name] = value
 
     @property
     def complete(self) -> bool:
-        return not required_questions(self.extraction.hardware, self.answers)
+        """Answered enough to build.
+
+        Deliberately not "answered everything": an advisory question has a
+        default whose wrongness is visible, and holding the whole pipeline over
+        a baud rate nobody stated would be theatre. What cannot be defaulted is
+        what blocks.
+        """
+        return not self.blocking()
 
 
 @dataclass
@@ -67,15 +89,20 @@ class Interview:
     def finish(state: InterviewState) -> InterviewOutcome:
         """Normalize the gathered answers into a brief, or raise."""
         if not state.complete:
-            missing = ", ".join(q.field for q in state.pending())
-            raise NormalizationError(f"interview is not finished; missing: {missing}")
+            missing = ", ".join(q.field for q in state.blocking())
+            raise NormalizationError(
+                f"interview is not finished; these cannot be guessed safely: {missing}"
+            )
 
+        # Captured before normalizing, while the unanswered ones are still
+        # identifiable as unanswered.
+        defaulted = state.assumptions()
         analysis, spec = normalize(state.extraction, state.answers)
 
         return InterviewOutcome(
             analysis=analysis,
             spec=spec,
             conflicts=check_timing(analysis, spec),
-            assumptions=list(state.extraction.assumptions),
+            assumptions=list(state.extraction.assumptions) + defaulted,
             unsupported=list(state.extraction.unsupported),
         )

@@ -273,6 +273,27 @@ def cmd_chat(args: argparse.Namespace) -> int:
         print(f"Could not read that: {exc}", file=sys.stderr)
         return 2
 
+    # Checked before a single question is asked. Interviewing someone about pin
+    # assignments and only then telling them the part is unsupported wastes
+    # their time; worse, it implies the answers were going somewhere.
+    from agents.normalizer import contention, unsupported
+
+    hardware = state.extraction.hardware
+    blockers = unsupported(hardware)
+    if blockers:
+        print("\nStopping here rather than asking you anything:", file=sys.stderr)
+        for item in blockers:
+            print(f"  - {item}", file=sys.stderr)
+        return 2
+
+    clashes = contention(hardware)
+    if clashes:
+        print("\nThis design does not fit the part. No answer from you changes "
+              "it, so it is not a question:", file=sys.stderr)
+        for item in clashes:
+            print(f"  - {item}", file=sys.stderr)
+        return 1
+
     if state.extraction.unsupported:
         print("\nThis tool cannot do the following, so it is not in the plan:")
         for item in state.extraction.unsupported:
@@ -283,20 +304,40 @@ def cmd_chat(args: argparse.Namespace) -> int:
         for item in state.extraction.assumptions:
             print(f"  - {item}")
 
-    print()
+    blocking = {q.field for q in state.blocking()}
+    if blocking:
+        print(
+            f"\n{len(blocking)} of these cannot be guessed: a wrong answer would "
+            f"not fail visibly, so there is no default to fall back on. They are "
+            f"asked first and marked [required].\n"
+        )
+
     for question in state.pending():
+        required = question.field in blocking
         suffix = f" [{question.default}]" if question.default else ""
         if question.options:
             suffix = f" ({'/'.join(question.options)}){suffix}"
-        print(f"\n{question.question}{suffix}")
+        marker = "[required] " if required else ""
+        print(f"\n{marker}{question.question}{suffix}")
         print(f"  why: {question.why}")
-        try:
-            answer = input("  > ").strip()
-        except EOFError:
-            answer = ""
-        if not answer and question.default:
-            answer = question.default
-            print(f"  using {answer}")
+
+        while True:
+            try:
+                answer = input("  > ").strip()
+            except EOFError:
+                # Input closed. Stop asking rather than spin; `finish` will
+                # refuse below and name what is still missing.
+                answer = ""
+                break
+            if not answer and question.default:
+                answer = question.default
+                print(f"  using {answer}")
+            if answer or not required:
+                break
+            # Only reached for a question with no default. Accepting silence
+            # here is exactly the failure this whole path exists to prevent.
+            print("  This one has no safe default. It has to come from the board.")
+
         if answer:
             state.answer(question.field, answer)
 
@@ -316,6 +357,12 @@ def cmd_chat(args: argparse.Namespace) -> int:
     spec = outcome.spec
     print(f"\nBrief: {outcome.analysis.mcu.name}, {len(outcome.analysis.sensors)} sensor(s), "
           f"loop {spec.loop_period_ms} ms, {spec.uart_baud} baud, {spec.f_cpu_hz} Hz")
+
+    if outcome.assumptions:
+        print("\nUsed without being told to. Each of these fails visibly if it is "
+              "wrong, which is why it was allowed to default:")
+        for assumption in outcome.assumptions:
+            print(f"  - {assumption}")
 
     firmware = generate_firmware(
         outcome.analysis,
