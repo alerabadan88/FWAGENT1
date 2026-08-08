@@ -20,3 +20,7 @@ class ToolchainNotFoundError(FWAgentError):
 
 class CompilationError(FWAgentError):
     """Raised when the toolchain runs but rejects the source it was given."""
+
+
+class CodegenError(FWAgentError):
+    """Raised when firmware source cannot be generated for the given hardware."""

@@ -109,17 +109,23 @@ class AvrToolchain:
         mcu: str,
         f_cpu_hz: int | None = None,
         include_dirs: tuple[str | Path, ...] = (),
+        optimization: str = "-Os",
     ) -> CompileResult:
         """Run ``-fsyntax-only`` over a real source file.
 
         Returns a :class:`CompileResult`; a rejected source is a normal result
         with ``ok=False``, not an exception.
+
+        Optimization is on by default because avr-libc's ``<util/delay.h>``
+        warns (correctly) that its delay functions do not work when compiled
+        at ``-O0``, which would make every syntax check of delay-using code
+        noisy for a reason unrelated to the code's validity.
         """
         source = Path(source)
         if not source.is_file():
             raise CompilationError(f"source file does not exist: {source}")
 
-        command = [str(self.gcc_path), f"-mmcu={mcu}"]
+        command = [str(self.gcc_path), f"-mmcu={mcu}", optimization]
         if f_cpu_hz is not None:
             command.append(f"-DF_CPU={f_cpu_hz}UL")
         command.extend(f"-I{Path(d)}" for d in include_dirs)
