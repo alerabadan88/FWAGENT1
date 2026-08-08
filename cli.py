@@ -74,6 +74,32 @@ def _checks_for(firmware_sensors) -> list[Check]:
     return checks
 
 
+def _warn_if_unverified(firmware) -> None:
+    """Say so when a driver's register map is only a description.
+
+    Printed on stderr at every build, because this is the one defect the rest
+    of the pipeline cannot catch: the code compiles, runs, and reports numbers
+    that look right.
+    """
+    unverified = sorted(
+        name for name, content in firmware.files.items()
+        if name.endswith(".c") and "UNVERIFIED REGISTER MAP" in content
+    )
+    if not unverified:
+        return
+
+    print(
+        f"\nUNVERIFIED  {', '.join(unverified)} were built from a described "
+        f"register map, not a checked datasheet.",
+        file=sys.stderr,
+    )
+    print(
+        "            Each file's header lists the addresses to verify. "
+        "A wrong one reports plausible wrong numbers.",
+        file=sys.stderr,
+    )
+
+
 def _load(config: Path):
     analysis = parse_config_file(config)
     firmware = generate_firmware(analysis)
@@ -123,6 +149,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     memory = result.memory
     print(f"Build OK   {result.elf_path}")
+    _warn_if_unverified(firmware)
     print(f"  flash    {memory.flash_used_bytes:>6} / {memory.flash_capacity_bytes} B "
           f"({memory.flash_percent} %)")
     print(f"  RAM      {memory.ram_used_bytes:>6} / {memory.ram_capacity_bytes} B "

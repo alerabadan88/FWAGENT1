@@ -47,6 +47,9 @@ _DRIVER_TEMPLATES = {
     "ultrasonic": "hcsr04",
     "single_wire": "dht22",
     "i2c_bmp280": "bmp280",
+    # Built from a model-supplied profile rather than hand-written. Kept
+    # distinct so nothing treats it as equally trustworthy.
+    "i2c_profile": "generic_i2c",
 }
 
 
@@ -64,6 +67,9 @@ class RenderedSensor:
     required: bool
     # I2C parts are addressed rather than pinned; SDA and SCL belong to the MCU.
     address: str | None = None
+    # Set when the driver is built from a described register map rather than
+    # a hand-verified one. Its presence means 'unverified'.
+    profile: object | None = None
 
 
 @dataclass
@@ -93,9 +99,12 @@ def _c_symbol(name: str) -> str:
     return symbol
 
 
-def _resolve_sensor(sensor: Sensor, device=None, board: str | None = None) -> RenderedSensor:
+def _resolve_sensor(
+    sensor: Sensor, device=None, board: str | None = None, profiles=None
+) -> RenderedSensor:
+    profiles = profiles or {}
     if sensor.interface == InterfaceType.I2C:
-        return _resolve_i2c_sensor(sensor, device)
+        return _resolve_i2c_sensor(sensor, device, profile=profiles.get(sensor.name))
 
     if sensor.interface in (InterfaceType.SPI, InterfaceType.UART):
         raise CodegenError(
@@ -148,13 +157,19 @@ def _resolve_sensor(sensor: Sensor, device=None, board: str | None = None) -> Re
     )
 
 
-def _resolve_i2c_sensor(sensor: Sensor, device) -> RenderedSensor:
+def _resolve_i2c_sensor(sensor: Sensor, device, profile=None) -> RenderedSensor:
     """An I2C sensor is identified by address; SDA and SCL belong to the part."""
     part = sensor.name.upper().replace("-", "")
-    if part not in _I2C_PARTS:
+
+    if profile is not None:
+        driver_kind = "i2c_profile"
+    elif part in _I2C_PARTS:
+        driver_kind = f"i2c_{part.lower()}"
+    else:
         raise CodegenError(
             f"no I2C driver is implemented for '{sensor.name}' "
-            f"(implemented: {sorted(_I2C_PARTS)})"
+            f"(hand-written: {sorted(_I2C_PARTS)}). Supply a profile to build "
+            f"one from a described register map instead."
         )
 
     if device is not None and not device.has("i2c"):
@@ -185,11 +200,12 @@ def _resolve_i2c_sensor(sensor: Sensor, device) -> RenderedSensor:
         type=sensor.type,
         interface=sensor.interface,
         symbol=_c_symbol(sensor.name),
-        driver_kind=f"i2c_{part.lower()}",
+        driver_kind=driver_kind,
         resolved_pins={},
         adc_channels={},
         address=f"0x{address:02X}u",
         required=sensor.required,
+        profile=profile,
     )
 
 
@@ -405,6 +421,7 @@ def generate_firmware(
     sensor_settle_ms: int = 60,
     uart_baud: int = 9600,
     i2c_clock_hz: int = 100_000,
+    sensor_profiles: dict | None = None,
     device: "DeviceFacts | None" = None,
     firmware_version: str = "0.1.0",
 ) -> GeneratedFirmware:
@@ -429,7 +446,9 @@ def generate_firmware(
         )
 
     sensors = [
-        _resolve_sensor(sensor, device=device, board=analysis.board)
+        _resolve_sensor(
+            sensor, device=device, board=analysis.board, profiles=sensor_profiles
+        )
         for sensor in analysis.sensors
     ]
     context = {
@@ -485,7 +504,7 @@ def generate_firmware(
         for extension in ("h", "c"):
             template = env.get_template(f"drivers/{stem}.{extension}.j2")
             files[f"{sensor.symbol.lower()}.{extension}"] = template.render(
-                sensor=sensor, **context
+                sensor=sensor, profile=sensor.profile, **context
             )
 
     return GeneratedFirmware(files=files)

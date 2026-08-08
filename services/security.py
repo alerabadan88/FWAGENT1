@@ -297,6 +297,24 @@ def assess(
             ),
         ),
         Measure(
+            name="All drivers verified against a datasheet",
+            implemented="UNVERIFIED REGISTER MAP" not in sources,
+            detail=(
+                "Every driver in this build has a hand-written, separately "
+                "verified register map."
+                if "UNVERIFIED REGISTER MAP" not in sources else
+                "At least one driver was built from a described register map "
+                "that nobody has checked against a datasheet. Its own header "
+                "lists the addresses to verify. A wrong one does not fail "
+                "loudly -- it reports plausible numbers that are wrong."
+            ),
+            requirement="Annex I Part I(2)(e): integrity of processed data",
+            limitation=(
+                "A textual check for the marker the generator emits. It cannot "
+                "tell whether a hand-written map is itself correct."
+            ),
+        ),
+        Measure(
             name="Secure update mechanism",
             implemented=False,
             detail=(
