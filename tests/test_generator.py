@@ -142,10 +142,10 @@ def test_board_with_no_sensors_is_rejected():
 def test_adc_sensor_on_a_digital_only_pin_is_rejected():
     analysis = PCBAnalysis(
         mcu=MCU(name="ATmega328P", family="AVR", flash_kb=32, ram_kb=2, clock_mhz=16, gpio_pins=20, voltage=5.0),
-        sensors=[Sensor(name="LDR", type="light_level", interface=InterfaceType.ADC, pins={"pin": "D2"})],
+        sensors=[Sensor(name="LDR", type="light_level", interface=InterfaceType.ADC, pins={"pin": "PD2"})],
     )
 
-    with pytest.raises(CodegenError, match="no ADC channel"):
+    with pytest.raises(CodegenError, match="not an analog input"):
         generate_firmware(analysis)
 
 

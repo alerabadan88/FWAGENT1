@@ -284,7 +284,13 @@ def normalize(
 
     mcu = _build_mcu(draft, answers)
     sensors = [_build_sensor(s, i, answers) for i, s in enumerate(draft.sensors)]
-    analysis = PCBAnalysis(mcu=mcu, sensors=sensors)  # raises on I2C conflicts etc.
+    analysis = PCBAnalysis(
+        mcu=mcu,
+        sensors=sensors,
+        # Carried through so silkscreen labels ('D2') can be resolved to the
+        # chip pin they mean on this particular board.
+        board=draft.board_name,
+    )  # raises on I2C conflicts etc.
 
     policies = {}
     for index, sensor in enumerate(draft.sensors):

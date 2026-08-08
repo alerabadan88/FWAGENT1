@@ -18,7 +18,7 @@ from core.hardware_model import InterfaceType, PCBAnalysis, Sensor
 
 if TYPE_CHECKING:  # avoid importing the toolchain layer at module load
     from core.device_catalog import DeviceFacts
-from codegen.pin_mapping import AvrPin, map_arduino_uno_pin
+from codegen.pin_mapping import McuPin, adc_channel_for, resolve_pin, verify_pin
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -46,7 +46,8 @@ class RenderedSensor:
     interface: InterfaceType
     symbol: str
     driver_kind: str
-    resolved_pins: dict[str, AvrPin]
+    resolved_pins: dict[str, McuPin]
+    adc_channels: dict[str, int]
     required: bool
 
 
@@ -77,7 +78,7 @@ def _c_symbol(name: str) -> str:
     return symbol
 
 
-def _resolve_sensor(sensor: Sensor) -> RenderedSensor:
+def _resolve_sensor(sensor: Sensor, device=None, board: str | None = None) -> RenderedSensor:
     if sensor.interface in (InterfaceType.I2C, InterfaceType.SPI, InterfaceType.UART):
         raise CodegenError(
             f"sensor '{sensor.name}' uses {sensor.interface.value}, which the AVR "
@@ -108,13 +109,14 @@ def _resolve_sensor(sensor: Sensor) -> RenderedSensor:
             f"(implemented: {sorted(_ULTRASONIC_PARTS | _SINGLE_WIRE_PARTS)} and any ADC sensor)"
         )
 
-    resolved = {role: map_arduino_uno_pin(label) for role, label in roles.items()}
+    resolved = {role: resolve_pin(label, board=board) for role, label in roles.items()}
 
-    if driver_kind == "adc" and not resolved["signal"].is_analog_capable:
-        raise CodegenError(
-            f"sensor '{sensor.name}' is declared as ADC but pin "
-            f"'{resolved['signal'].label}' has no ADC channel on this board"
-        )
+    adc_channels: dict[str, int] = {}
+    if device is not None:
+        for role, pin in resolved.items():
+            verify_pin(pin, device)
+        if driver_kind == "adc":
+            adc_channels["signal"] = adc_channel_for(resolved["signal"], device)
 
     return RenderedSensor(
         name=sensor.name,
@@ -123,6 +125,7 @@ def _resolve_sensor(sensor: Sensor) -> RenderedSensor:
         symbol=_c_symbol(sensor.name),
         driver_kind=driver_kind,
         resolved_pins=resolved,
+        adc_channels=adc_channels,
         required=sensor.required,
     )
 
@@ -228,7 +231,10 @@ def generate_firmware(
             f"This generator has no other transport."
         )
 
-    sensors = [_resolve_sensor(sensor) for sensor in analysis.sensors]
+    sensors = [
+        _resolve_sensor(sensor, device=device, board=analysis.board)
+        for sensor in analysis.sensors
+    ]
     context = {
         "mcu": analysis.mcu,
         "sensors": sensors,

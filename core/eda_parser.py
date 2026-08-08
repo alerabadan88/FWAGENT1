@@ -117,7 +117,7 @@ def parse_config_dict(data: dict[str, Any]) -> PCBAnalysis:
         raise EDAParseError("config: field 'sensors' must be an array")
 
     sensors = [_parse_sensor(raw, i) for i, raw in enumerate(raw_sensors)]
-    return PCBAnalysis(mcu=mcu, sensors=sensors)
+    return PCBAnalysis(mcu=mcu, sensors=sensors, board=data.get("board"))
 
 
 def parse_config_file(path: str | Path) -> PCBAnalysis:

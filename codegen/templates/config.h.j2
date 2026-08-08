@@ -28,8 +28,8 @@
 #define {{ sensor.symbol }}_{{ role | upper }}_DDR    {{ pin.ddr_register }}
 #define {{ sensor.symbol }}_{{ role | upper }}_PIN    {{ pin.input_register }}
 #define {{ sensor.symbol }}_{{ role | upper }}_BIT    {{ pin.bit }}
-{%- if pin.adc_channel is not none %}
-#define {{ sensor.symbol }}_{{ role | upper }}_ADC_CHANNEL {{ pin.adc_channel }}
+{%- if role in sensor.adc_channels %}
+#define {{ sensor.symbol }}_{{ role | upper }}_ADC_CHANNEL {{ sensor.adc_channels[role] }}
 {%- endif %}
 {%- endfor %}
 #define {{ sensor.symbol }}_REQUIRED {{ 1 if sensor.required else 0 }}

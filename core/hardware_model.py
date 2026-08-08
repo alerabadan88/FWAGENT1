@@ -49,6 +49,14 @@ class Sensor(BaseModel):
 class PCBAnalysis(BaseModel):
     mcu: MCU
     sensors: list[Sensor] = Field(default_factory=list)
+    board: str | None = Field(
+        default=None,
+        description=(
+            "Board the part sits on, when there is one. Only needed to resolve "
+            "silkscreen labels like 'D2', which mean different chip pins on "
+            "different boards; MCU-native pins such as PD2 need no board."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_i2c_address_conflicts(self) -> PCBAnalysis:

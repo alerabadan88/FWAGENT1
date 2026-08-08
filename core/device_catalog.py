@@ -21,7 +21,7 @@ from __future__ import annotations
 import ast
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -44,6 +44,9 @@ _PERIPHERAL_MARKERS = {
 }
 
 _UDR_PATTERN = re.compile(r"^UDR(\d*)$")
+_PORT_PATTERN = re.compile(r"^PORT([A-L])$")
+_PORT_BIT_PATTERN = re.compile(r"^P([A-L])(\d)$")
+_ADC_CHANNEL_PATTERN = re.compile(r"^ADC(\d+)D$")
 
 # Development boards whose part is not guessable from the name. Kept small on
 # purpose: it is a convenience shortcut, and every entry still gets verified
@@ -76,6 +79,12 @@ class DeviceFacts:
     eeprom_bytes: int
     flash_page_bytes: int
     peripherals: frozenset[str]
+    ports: dict[str, int] = field(default_factory=dict)
+    """Width of each I/O port the part actually has, e.g. ``{"B": 8, "C": 7}``.
+    The ATtiny85 has only port B and only 6 usable bits; the ATmega2560 has
+    A through L. Read from the part's header, so a pin can be checked against
+    the silicon instead of assumed."""
+    adc_channels: int = 0
     usart_suffix: str | None = None
     """Register suffix of the USART to drive: ``"0"`` for UDR0, ``"1"`` for UDR1,
     ``""`` for parts whose registers are unnumbered (UDR/UCSRA), ``None`` for
@@ -289,6 +298,23 @@ def _facts_for(gcc_path: str, part: str) -> DeviceFacts:
         if any(register in defined for register in registers)
     }
 
+    # Which ports exist, and how wide each one really is. Both come from the
+    # header rather than an assumption that every port is 8 bits: the ATtiny85's
+    # port B is 6.
+    ports: dict[str, int] = {}
+    for name in defined:
+        if (match := _PORT_PATTERN.match(name)):
+            ports.setdefault(match.group(1), 0)
+    for name in defined:
+        if (match := _PORT_BIT_PATTERN.match(name)) and match.group(1) in ports:
+            letter, bit = match.group(1), int(match.group(2))
+            ports[letter] = max(ports[letter], bit + 1)
+
+    adc_channels = 1 + max(
+        (int(m.group(1)) for name in defined if (m := _ADC_CHANNEL_PATTERN.match(name))),
+        default=-1,
+    )
+
     # Lowest-numbered USART present; "" when the part's registers carry no index.
     suffixes = sorted(
         (match.group(1) for name in defined if (match := _UDR_PATTERN.match(name))),
@@ -304,5 +330,7 @@ def _facts_for(gcc_path: str, part: str) -> DeviceFacts:
         eeprom_bytes=sizes.get("E2END", -1) + 1,
         flash_page_bytes=sizes.get("SPM_PAGESIZE", 0),
         peripherals=frozenset(peripherals),
+        ports=ports,
+        adc_channels=adc_channels,
         usart_suffix=usart_suffix,
     )

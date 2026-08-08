@@ -1,4 +1,5 @@
 {
+  "board": "Arduino Uno",
   "mcu": "ATmega328P",
   "mcu_family": "AVR",
   "mcu_specs": {
@@ -22,7 +23,10 @@
       "name": "HC-SR04",
       "type": "ultrasonic_distance",
       "interface": "GPIO",
-      "pins": { "trigger": "D9", "echo": "D10" },
+      "pins": {
+        "trigger": "D9",
+        "echo": "D10"
+      },
       "required": true
     },
     {
