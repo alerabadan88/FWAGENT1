@@ -41,6 +41,7 @@ class SchematicReport:
     mcu_part: str = ""
     unrecognised_parts: list[str] = field(default_factory=list)
     unmapped_connections: list[str] = field(default_factory=list)
+    passive_only_pins: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -104,10 +105,30 @@ def analyse_netlist(netlist: Netlist, catalog, board: str | None = None) -> Sche
             )
             continue
 
-        for other in others:
-            component = netlist.components.get(other.ref)
-            if component is None or component.is_passive:
-                continue
+        active = [
+            other for other in others
+            if (component := netlist.components.get(other.ref)) is not None
+            and not component.is_passive
+        ]
+
+        if not active:
+            # Everything on this net is a passive. That is not nothing: an
+            # analog sensor is often a resistive divider, which in a netlist is
+            # indistinguishable from any other passive network. Reporting it
+            # beats dropping it, because the pin is clearly in use.
+            parts = ", ".join(
+                f"{o.ref} ({netlist.components[o.ref].value})"
+                for o in others
+                if o.ref in netlist.components
+            )
+            report.passive_only_pins.append(
+                f"{mcu_node.function} is wired to passives only ({parts}). If that "
+                f"is an analog sensor, its type has to be stated -- a divider "
+                f"cannot be identified from a netlist."
+            )
+            continue
+
+        for other in active:
             role = role_for(other.function)
             pins_by_ref.setdefault(other.ref, {})[role] = mcu_node.function
 

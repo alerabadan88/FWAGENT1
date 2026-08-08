@@ -223,3 +223,41 @@ def test_a_schematic_becomes_compilable_firmware(netlist, catalog, tmp_path):
     assert "#define DHT22_SIGNAL_BIT    2" in header
     assert "#define HC_SR04_TRIGGER_BIT    1" in header  # PB1
     assert "#define HC_SR04_ECHO_BIT    2" in header     # PB2
+
+
+@requires_avr
+def test_a_pin_wired_only_to_passives_is_reported_not_dropped(catalog):
+    """An analog sensor is often a divider, which a netlist cannot distinguish
+    from any other passive network. The pin is clearly in use, so say so."""
+    text = wrap(
+        '(comp (ref "U1") (value "ATmega328P"))'
+        ' (comp (ref "U2") (value "DHT22"))'
+        ' (comp (ref "R2") (value "LDR 5528"))'
+        ' (comp (ref "R3") (value "10k"))',
+        '(net (code "1") (name "/DATA")'
+        ' (node (ref "U1") (pin "4") (pinfunction "PD2") (pintype "bidirectional"))'
+        ' (node (ref "U2") (pin "2") (pinfunction "DATA") (pintype "bidirectional")))'
+        ' (net (code "2") (name "/LIGHT")'
+        ' (node (ref "U1") (pin "23") (pinfunction "PC0") (pintype "bidirectional"))'
+        ' (node (ref "R2") (pin "2") (pinfunction "~") (pintype "passive"))'
+        ' (node (ref "R3") (pin "1") (pinfunction "~") (pintype "passive")))',
+    )
+
+    report = analyse_netlist(parse_kicad_netlist(text), catalog)
+
+    assert any("PC0" in item for item in report.passive_only_pins)
+    assert any("LDR 5528" in item for item in report.passive_only_pins)
+    # The rest of the board still comes through.
+    assert [s.name for s in report.analysis.sensors] == ["DHT22"]
+
+
+@requires_avr
+def test_the_shipped_example_netlist_is_a_real_kicad_export(catalog):
+    """The examples must be readable by the command that documents them."""
+    example = Path(__file__).parent.parent / "examples" / "arduino-uno" / "board.kicad.net"
+
+    report = analyse_netlist(parse_kicad_netlist_file(example), catalog)
+
+    assert report.ok
+    assert report.mcu_part == "atmega328p"
+    assert {s.name for s in report.analysis.sensors} == {"DHT22", "HC-SR04"}

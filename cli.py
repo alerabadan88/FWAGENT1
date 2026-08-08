@@ -194,6 +194,8 @@ def cmd_schematic(args: argparse.Namespace) -> int:
         print(f"NO DRIVER {item}", file=sys.stderr)
     for item in report.unmapped_connections:
         print(f"UNMAPPED  {item}", file=sys.stderr)
+    for item in report.passive_only_pins:
+        print(f"PASSIVE   {item}", file=sys.stderr)
     for note in report.notes:
         print(f"NOTE     {note}")
 
