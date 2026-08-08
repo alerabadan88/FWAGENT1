@@ -97,6 +97,41 @@ class AvrToolchain:
     def is_available(cls) -> bool:
         return find_executable(cls.executable_name) is not None
 
+    @property
+    def size_path(self) -> Path:
+        """Path to ``avr-size``, which ships alongside ``avr-gcc``."""
+        suffix = ".exe" if os.name == "nt" else ""
+        candidate = self.gcc_path.parent / f"avr-size{suffix}"
+        if not candidate.is_file():
+            raise ToolchainNotFoundError(
+                f"avr-size was not found next to {self.gcc_path}. {self.install_hint}"
+            )
+        return candidate
+
+    def section_sizes(self, elf: str | Path) -> dict[str, int]:
+        """Read real ``.text``/``.data``/``.bss`` sizes out of a built ELF."""
+        elf = Path(elf)
+        if not elf.is_file():
+            raise CompilationError(f"ELF file does not exist: {elf}")
+
+        result = self._run([str(self.size_path), str(elf)])
+        if not result.ok:
+            raise CompilationError(f"avr-size failed: {result.diagnostics}")
+
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
+        if len(lines) < 2:
+            raise CompilationError(f"could not parse avr-size output: {result.stdout!r}")
+
+        fields = lines[1].split()
+        try:
+            text, data, bss = (int(fields[i]) for i in range(3))
+        except (IndexError, ValueError) as exc:
+            raise CompilationError(
+                f"could not parse avr-size output line: {lines[1]!r}"
+            ) from exc
+
+        return {"text": text, "data": data, "bss": bss}
+
     def version(self) -> str:
         result = self._run([str(self.gcc_path), "--version"])
         if not result.ok:
