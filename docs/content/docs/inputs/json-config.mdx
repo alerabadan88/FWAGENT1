@@ -1,0 +1,45 @@
+---
+title: JSON config
+description: A board as a person describes it.
+---
+
+```json
+{
+  "board": "Arduino Uno",
+  "mcu": "ATmega328P",
+  "mcu_family": "AVR",
+  "mcu_specs": { "flash_kb": 32, "sram_kb": 2, "clock_mhz": 16, "gpio_pins": 20 },
+  "power_supply_voltage": 5.0,
+  "sensors": [
+    { "name": "DHT22", "type": "temperature_humidity", "interface": "GPIO", "pin": "D2" },
+    { "name": "HC-SR04", "type": "ultrasonic_distance", "interface": "GPIO",
+      "pins": { "trigger": "D9", "echo": "D10" } },
+    { "name": "LDR", "type": "light_level", "interface": "ADC", "pin": "A0",
+      "required": false }
+  ]
+}
+```
+
+`board` matters: it is what lets `D2` be resolved to a chip pin. Give MCU pins
+(`PD2`) and it is unnecessary.
+
+## Field mapping
+
+The config and the internal model do not use identical names, and the parser
+does the translation:
+
+| Config | Model |
+|---|---|
+| `mcu` (string) | `MCU.name` |
+| `mcu_specs.sram_kb` | `MCU.ram_kb` |
+| `power_supply_voltage` | `MCU.voltage` |
+
+Sensors name their connection one of four ways depending on interface: `bus`
+(I2C), `port` (UART), `pin` (single), or `pins` (multi-pin, like the HC-SR04's
+trigger and echo).
+
+## What is rejected
+
+Malformed JSON, a missing `mcu` or spec field, an unknown interface, and
+hardware that parses but cannot exist — two I2C devices at one address on one
+bus raises before anything is generated.

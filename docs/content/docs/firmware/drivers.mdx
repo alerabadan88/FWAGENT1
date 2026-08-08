@@ -1,0 +1,38 @@
+---
+title: Drivers
+description: What is implemented, and honestly how far it is verified.
+---
+
+There are no stub drivers. Every supported part has a working implementation,
+and a part with no driver raises at generation time instead of emitting a
+placeholder that compiles and does nothing.
+
+| Part | Implementation |
+|---|---|
+| Any ADC sensor | Single-ended conversion against AVcc, /128 prescaler — keeps the ADC clock at 125 kHz, inside the window the ATmega328P needs for full 10-bit accuracy. Also exposes `_read_mv()` scaled to the supply rail. |
+| DHT22 / AM2302 | Full single-wire protocol: ≥1 ms start pulse, response handshake, 40-bit frame decoded by timing each bit's high phase against a 45 µs threshold, checksum verified, sign-flag handling on the temperature word. Interrupts masked for the frame. |
+| HC-SR04 | 10 µs trigger, echo width timed with **Timer1** (/64 prescaler, 4 µs/tick) rather than a delay loop, so readings do not drift with compiler output. Range-checked against the 4 m datasheet ceiling. |
+
+Failures are typed — `SENSOR_ERR_TIMEOUT`, `SENSOR_ERR_CHECKSUM`,
+`SENSOR_ERR_OUT_OF_RANGE`, `SENSOR_ERR_ARG` — and a failed read leaves the
+caller's value untouched.
+
+## Constraints the generated code imposes
+
+- **The HC-SR04 driver owns Timer1.** Do not also use it for PWM or a system tick.
+- **The DHT22 driver masks interrupts** for the ~5 ms of a frame, and must not
+  be called from an ISR.
+- The DHT22 needs ~2 s between reads, which is why the default loop period is
+  2000 ms and a faster one is refused.
+
+## What is not verified
+
+The arithmetic — frame decoding, checksums, the distance conversion — runs on
+a simulated MCU and is checked against known values. **The timing is not.**
+Bit thresholds and echo windows come from datasheets; confirming them needs a
+scope or a physical sensor.
+
+## Not supported
+
+I2C, SPI, and UART sensors are **rejected**, not silently mishandled. Most
+modern IoT sensors are I2C, so this is the largest functional gap.

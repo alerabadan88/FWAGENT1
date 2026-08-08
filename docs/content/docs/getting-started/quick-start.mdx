@@ -1,8 +1,80 @@
 ---
-title: Quick Start
-description: Generate your first firmware project in minutes.
+title: Quick start
+description: From a board description to a binary you can flash.
 ---
 
-> **Status:** stub — content not yet written.
+## From a description
 
-TODO: document Quick Start.
+```bash
+fw-agent build examples/arduino-uno/config.json -o build/
+```
+
+```
+Build OK   build/firmware.elf
+  flash      1958 / 32768 B (5.98 %)
+  RAM         151 / 2048 B (7.37 %)
+```
+
+Both numbers are measured from the linked ELF by `avr-size`. Nothing is
+estimated.
+
+## From a schematic
+
+Better, when you have one. A netlist carries the wiring, so nothing about
+which pin a sensor sits on has to be stated or guessed:
+
+```bash
+fw-agent schematic board.net --build
+```
+
+The MCU is identified by asking the toolchain whether a component's value
+names a part it can target — `U1` being first is not evidence.
+
+## Checking it before it reaches hardware
+
+```bash
+fw-agent verify examples/arduino-uno/config.json
+```
+
+```
+  PASS  DHT22: valid frame accepted
+  PASS  DHT22: humidity decodes to 65.8 %
+  PASS  DHT22: corrupt checksum rejected
+  PASS  HC-SR04: no 16-bit overflow at range
+7/7 checks passed on a simulated ATmega328P
+```
+
+These run the real driver code on a simulated MCU, so the arithmetic is
+exercised under the target's integer widths. That matters more than it sounds:
+the HC-SR04 conversion overflows 16 bits above 65 mm, which a test on a 64-bit
+host would never catch.
+
+## Onto the board
+
+```bash
+fw-agent ports                                    # see what is plugged in
+fw-agent flash board.json --port COM3 --dry-run   # talk to it, write nothing
+fw-agent flash board.json --port COM3
+```
+
+The port is never guessed. `ports` shows you candidates and ranks them, but
+picking one is yours, because writing to the wrong device is not undoable.
+
+Then open a serial monitor at 9600 baud:
+
+```
+ATmega328P 0.1.0 (765e0d32) up
+DHT22 T=26.9C RH=65.8%
+HC-SR04 d=1245mm
+LDR adc=512 (2502mV)
+```
+
+## Security artefacts
+
+```bash
+fw-agent secure board.json -o build/
+```
+
+Emits a CycloneDX SBOM, a SHA-256 manifest, and a report of which technical
+measures this build implements and which it does not. It does not claim
+compliance with anything — see [Security measures](/docs/firmware/security-measures).

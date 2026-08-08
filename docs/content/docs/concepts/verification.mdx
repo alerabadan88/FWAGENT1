@@ -1,0 +1,58 @@
+---
+title: What "verified" means here
+description: Four different strengths of evidence, kept apart on purpose.
+---
+
+"It works" is not one claim. These are kept distinct because they are not
+equally strong.
+
+## 1. It compiles, with no warnings
+
+Every generated source is put through the real `avr-gcc` with
+`-Wall -Wextra -Werror`, and must produce **zero diagnostics** — warnings
+included, not just errors. Then the whole set must link into an ELF.
+
+This gate has caught real defects. Extracting `dht22_decode()` left three
+locals unused in `read_all`, which would otherwise have shipped.
+
+## 2. Its arithmetic runs correctly on the target
+
+`avr-gdb` ships an instruction-set simulator. The driver logic is built and
+executed on a simulated ATmega328P, and results are read back:
+
+```
+PASS  DHT22: valid frame accepted
+PASS  DHT22: temperature decodes to 26.9 C
+PASS  DHT22: corrupt checksum rejected
+PASS  HC-SR04: no 16-bit overflow at range
+```
+
+Running on the target rather than the host is the point: the HC-SR04
+conversion overflows 16 bits above 65 mm, which a host test would not see.
+
+The suite includes a deliberately wrong expectation, because a test service
+that cannot fail proves nothing.
+
+## 3. It is measured, not estimated
+
+Flash and RAM figures come from `avr-size` reading the linked image. The raw
+`.bin` comes out byte-identical to what `avr-size` reported, which is two
+tools agreeing rather than one estimate repeated.
+
+## 4. Things nothing here has checked
+
+Named, because leaving them implied is how a tool starts lying:
+
+- **The watchdog.** GDB's AVR simulator does not implement the `WDR`
+  instruction and faults on it, so watchdog code is excluded from simulation.
+  It is verified by compiling only.
+- **Timing-critical paths.** The DHT22 bit thresholds and HC-SR04 echo timing
+  come from datasheets. A compiler cannot confirm them; a scope can.
+- **Writing to a device.** The flash path has been exercised against a
+  nonexistent port (it fails in 0.1 s with a real diagnostic) but never
+  against a board.
+- **The interview agent against the live API.** Its deterministic half is
+  fully tested offline behind a backend protocol; the request shape follows
+  the current SDK docs but has made no real round trip.
+
+See [Limitations](/docs/limitations).

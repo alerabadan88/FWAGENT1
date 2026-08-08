@@ -1,0 +1,81 @@
+---
+title: Where facts come from
+description: The decision the rest of the design follows from.
+---
+
+A wrong hardware fact does not produce a compiler error. It produces firmware
+that builds, flashes, runs, and quietly does nothing — because it is driving a
+pin that isn't connected to what you think. Nothing reports it. You find out
+with a scope, or you don't find out.
+
+So every fact that reaches the code generator is traced to something that can
+be checked.
+
+## The toolchain is the authority
+
+`core/device_catalog.py` asks `avr-gcc` about the part rather than consulting a
+table:
+
+```python
+DeviceCatalog().facts("atmega32u4")
+# atmega32u4 (avr5): 32 KB flash, 2.50 KB RAM, 1024 B EEPROM;
+#   adc, i2c, spi, timer1, usart1, watchdog
+```
+
+Sizes come from `FLASHEND`, `RAMEND`, `RAMSTART`, `E2END` in that part's own
+avr-libc header. Peripheral presence is decided by whether the header defines
+the registers. **414 parts** are reachable, and a part the compiler cannot
+target is rejected — which is right, because it could not be built for anyway.
+
+Two things this caught that a hand-written table had hidden:
+
+- **The ATmega32U4 has USART1 and no USART0.** Matching on `UDR0` reported "no
+  UART" for a board that plainly has one, and the UART template hardcoded
+  `UDR0`, so it would not have compiled there either.
+- **Some parts define sizes symbolically.** The 32U4 has
+  `RAMEND = (RAMSTART + RAMSIZE - 1)`, so reading the macro definition gives an
+  expression rather than a number.
+
+## The model reads; it does not decide
+
+The interview agent turns prose into a draft. That draft is never trusted:
+
+```
+prose ──▶ extractor ──▶ untrusted draft ──▶ normalizer ──▶ validated brief ──▶ codegen
+          (the model)                        (ordinary code)
+```
+
+Two properties do the work:
+
+**What must be asked is decided by the pipeline.** `required_questions()` is
+derived from what `generate_firmware()` actually consumes, so a model that
+forgets to ask about the loop period cannot cause a silent default. In testing,
+with the model returning zero questions, the code still raises the five that
+matter.
+
+**The draft is validated, not believed.** It goes through the same models as a
+hand-written config, so a hallucinated interface, an unknown board, or two I2C
+devices at one address raises rather than reaching the compiler.
+
+## Physical limits are checked before code exists
+
+Datasheet minimums are compared against what was asked for:
+
+```
+> read the DHT22 every 500 ms
+These cannot all be true at once:
+  - DHT22 is set to 500 ms but cannot be read faster than every 2000 ms --
+    it would return the previous reading without reporting an error.
+No firmware generated.
+```
+
+That is the failure worth catching: polling a DHT22 too fast does not error. It
+silently repeats the last measurement.
+
+## Why not read datasheets
+
+A datasheet describes a *part*. It says what PD2 is on an ATmega328P. It cannot
+say that *your* DHT22 is wired to it — that fact exists only in your schematic.
+No amount of document retrieval substitutes for reading one, and a model
+extracting pin assignments from a sample project produces confident claims
+about somebody else's board.

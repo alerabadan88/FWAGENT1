@@ -1,8 +1,52 @@
 ---
 title: Installation
-description: How to install fw-automation-agent locally.
+description: The Python package is the easy half; the AVR toolchain is what does the work.
 ---
 
-> **Status:** stub — content not yet written.
+## The package
 
-TODO: document Installation.
+```bash
+pip install fw-automation-agent
+```
+
+This gives you the `fw-agent` command. The interview agent, which is the only
+part that talks to a language model, is an optional extra:
+
+```bash
+pip install "fw-automation-agent[agent]"
+```
+
+Generating and building firmware never needs it, so it is not a hard
+dependency.
+
+## The toolchain
+
+Nothing works without this. The generator reads per-part facts from the
+compiler, the tests run generated code on the simulator that ships with
+`avr-gdb`, and flashing goes through `avrdude`.
+
+```bash
+# Debian / Ubuntu
+sudo apt install gcc-avr avr-libc binutils-avr gdb-avr avrdude
+
+# macOS
+brew tap osx-cross/avr && brew install avr-gcc avrdude
+
+# Windows
+winget install --id ZakKemble.avr-gcc   # bundles avrdude and avr-gdb
+```
+
+On Windows, winget adds the toolchain to the *persistent* user PATH, but shells
+that are already open keep their old environment. The tool handles this: it
+looks on PATH first, then falls back to the install directory, so it works in
+the shell you already had open.
+
+## Checking it took
+
+```bash
+fw-agent inspect examples/arduino-uno/config.json
+```
+
+If the toolchain is missing you get a message naming what to install rather
+than a stack trace. Tests that need the compiler skip loudly instead of
+quietly passing.

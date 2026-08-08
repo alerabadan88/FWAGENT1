@@ -1,0 +1,52 @@
+---
+title: Interview agent
+description: Asks about what would otherwise be assumed.
+---
+
+```bash
+fw-agent chat -o build/
+```
+
+Describe the board in plain language. The agent reads it into structure, then
+asks about everything the generator genuinely needs.
+
+## What it asks, and why it asks it
+
+All of these used to be hardcoded — chosen by whoever wrote the templates,
+not by the person whose board it is:
+
+| Question | What goes wrong without it |
+|---|---|
+| Pin(s) per sensor | The wrong port bit means the sensor is never read and nothing reports an error |
+| Sample period | Drives power draw and freshness, and is bounded by the part's datasheet |
+| Is this reading critical? | Critical readings get retries and an explicit error on the wire; others are logged and skipped |
+| Loop period | The single biggest thing that would otherwise be assumed |
+| Baud rate | Whatever reads the output must match exactly, and not every rate is reachable from a given clock |
+| MCU and clock | Only when the board name does not already determine them |
+
+Every question carries a *why*. A question whose point a user cannot see is a
+question they answer badly.
+
+## Where the authority sits
+
+The model reads. The code decides. `required_questions()` derives from what
+`generate_firmware()` consumes, so a model that forgets to ask cannot cause a
+silent default.
+
+Requests the system cannot serve — a non-AVR part, wireless, MQTT with QoS
+levels — come back **named** in `unsupported` and are printed before anything
+is built, rather than quietly dropped.
+
+## Cost and credentials
+
+Uses `claude-sonnet-5` with structured outputs; the JSON schema is generated
+from the Pydantic model so it cannot drift from what parses the response.
+Roughly $0.05–0.20 per interview.
+
+```bash
+export ANTHROPIC_API_KEY=...   # or: ant auth login
+```
+
+Without a credential it says so plainly and exits. Every one of the agent's
+tests runs offline behind a backend protocol, so the deterministic half costs
+nothing to check.

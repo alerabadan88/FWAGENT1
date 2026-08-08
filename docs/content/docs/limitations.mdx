@@ -1,0 +1,49 @@
+---
+title: Limitations
+description: What this does not do, and what has never been checked.
+---
+
+Read this before relying on any of it.
+
+## Never exercised end to end
+
+| | Why |
+|---|---|
+| **Writing to a device** | No board was connected to the machine this was built on. The flash path has been run against a nonexistent port — it fails in 0.1 s with a real diagnostic rather than hanging — but never against real hardware. |
+| **The interview agent against the live API** | No credential was available. Its deterministic half is fully tested offline; the request shape follows current SDK docs but has made no real round trip. |
+
+Both need something only you can supply: a board, and an API key.
+
+## Verified by compiling only
+
+- **The watchdog.** GDB's AVR simulator does not implement `WDR` and faults on
+  it, so watchdog code is excluded from the simulation harness.
+- **Timing-critical driver paths.** The DHT22's bit thresholds and the
+  HC-SR04's echo window come from datasheets. A compiler cannot confirm them.
+
+## Functional gaps
+
+- **I2C, SPI, and UART sensors are rejected.** Most modern IoT sensors are I2C,
+  so this is the largest gap by some distance.
+- **Two sensor parts have drivers** (DHT22/AM2302, HC-SR04) plus generic ADC. A
+  schematic reports anything else as unrecognised rather than dropping it.
+- **Only KiCad netlists.** Altium is not supported.
+- **Silkscreen maps for six boards.** Others work, with MCU pins.
+- **ADC pin-to-channel for five parts** of 414. Others raise and ask.
+
+## Hard limits
+
+**AVR only.** ESP32, STM32, nRF52, RP2040 and SAMD21 need toolchains that are
+not installed here. Generating code for a part that cannot be compiled or
+simulated would produce something that looks like firmware without any evidence
+that it is — which is the thing this project is built to avoid. Adding them to
+a catalog by hand would reintroduce exactly the guessable data the toolchain
+query removed.
+
+**Compliance is a process, not a file.** See
+[Security measures](/docs/firmware/security-measures).
+
+## Not started
+
+A REST API. There is no `api/` module; the CLI and the Python package are the
+only interfaces.

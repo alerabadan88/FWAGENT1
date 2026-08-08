@@ -1,0 +1,100 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: pytest (with AVR toolchain)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Without these the toolchain-dependent tests skip rather than fail, and
+      # the suite would pass while proving nothing about the generated C.
+      # gdb-avr carries the instruction-set simulator the on-target checks run on.
+      - name: Install the AVR toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-avr avr-libc binutils-avr gdb-avr avrdude
+
+      - name: Show toolchain versions
+        run: |
+          avr-gcc --version | head -1
+          avr-gdb --version | head -1
+          avrdude -v 2>&1 | head -2 || true
+
+      - name: Install the package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run the tests
+        run: pytest -v
+
+      # A pass that skipped the compiler tests is not the pass we want, so make
+      # skips visible instead of letting them hide in the summary.
+      - name: Report skipped tests
+        if: always()
+        run: pytest -q -rs 2>&1 | tail -20
+
+  package:
+    name: wheel installs and runs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install the AVR toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-avr avr-libc binutils-avr
+
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist/
+
+      # This job exists because of a real defect: package-data listed
+      # "templates/*.j2", which does not recurse, so a wheel shipped 3 of 13
+      # templates and no driver at all. Everything passed in the repo and the
+      # installed package could not generate firmware. Installing somewhere
+      # clean is the only thing that catches that class of bug.
+      - name: Install the wheel into a clean environment
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet dist/*.whl
+
+      - name: Generate firmware from the installed package
+        run: |
+          cd /tmp
+          /tmp/clean/bin/fw-agent generate \
+            "$GITHUB_WORKSPACE/examples/arduino-uno/config.json" -o /tmp/out
+          test -f /tmp/out/dht22.c
+          test -f /tmp/out/hc_sr04.c
+          test -f /tmp/out/watchdog.c
+          echo "generated $(ls /tmp/out | wc -l) files"
+
+      - name: Build it, from the installed package
+        run: |
+          cd /tmp
+          /tmp/clean/bin/fw-agent build \
+            "$GITHUB_WORKSPACE/examples/arduino-uno/config.json" -o /tmp/build
+          test -f /tmp/build/firmware.elf

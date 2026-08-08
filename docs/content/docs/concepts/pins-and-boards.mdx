@@ -1,0 +1,58 @@
+---
+title: Pins and boards
+description: Why a pin has two names, and only one of them is a fact about the chip.
+---
+
+`D2` and `PD2` look interchangeable. They are not.
+
+- **`PD2`** is an MCU pin: port D, bit 2. It means the same thing on every AVR
+  that has a port D, and it can be checked against the part.
+- **`D2`** is a *silkscreen label* on one board. It is PD2 on an Arduino Uno
+  and **PE4** on a Mega.
+
+```python
+resolve_pin("D2", board="Arduino Uno")        # PD2
+resolve_pin("D2", board="Arduino Mega 2560")  # PE4
+```
+
+So the MCU pin is the primary form, and board labels are a convenience layer
+that resolves into one — and only when a board is actually stated. A label with
+no board is refused, with a message saying to give the chip pin instead.
+
+Anything coming from a schematic is already MCU-native, which is one more
+reason that is the better input.
+
+## Every pin is checked against the silicon
+
+Port widths are read from the part's own header, so a pin that does not exist
+is refused rather than generating code that toggles nothing:
+
+```
+PD2 on an ATtiny85  ->  refused: it has no port D at all
+PB7 on an ATtiny85  ->  refused: its port B is 6 bits, not 8
+PL0 on a Mega2560   ->  fine
+PL0 on a 328P       ->  refused
+```
+
+## ADC channels are asked about, not derived
+
+The headers say `ADC3` exists. They do not say it is on `PC3`. That mapping is
+a table, and a part missing from it raises rather than guesses:
+
+```
+which pins carry ADC channels on atmega644p is not recorded
+(recorded for: atmega168, atmega2560, atmega328p, atmega8, attiny85).
+It cannot be derived from the headers, so it has to be stated
+rather than guessed.
+```
+
+A channel guessed wrong reads a different pin and reports plausible numbers
+from the wrong sensor. Refusing is the better failure.
+
+## Boards with a label map
+
+Uno, Nano, Mini, Pro Mini, Mega, Mega 2560. The Nano shares the Uno's map
+because it is the same ATmega328P pinout; the Mega has its own because it is a
+different part arranged differently.
+
+Any other board still works — give MCU pins.

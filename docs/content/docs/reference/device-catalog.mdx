@@ -1,0 +1,47 @@
+---
+title: Device catalog
+description: 414 parts, none of them written down here.
+---
+
+```python
+from core.device_catalog import DeviceCatalog
+
+catalog = DeviceCatalog()
+catalog.known_parts()          # every part avr-gcc can target
+catalog.resolve("Arduino Nano")  # 'atmega328p'
+catalog.facts("attiny85")
+```
+
+```
+attiny85 (avr25): 8 KB flash, 0.50 KB RAM, 512 B EEPROM; adc, timer1, watchdog
+```
+
+Note what is absent from that list: the ATtiny85 has no USART, no I2C, and no
+hardware SPI — read from its header, not assumed.
+
+## Fields
+
+| Field | Source |
+|---|---|
+| `flash_bytes`, `ram_bytes`, `eeprom_bytes` | `FLASHEND`, `RAMEND`/`RAMSTART`, `E2END` |
+| `flash_page_bytes` | `SPM_PAGESIZE` |
+| `ports` | Which ports exist and how wide each is |
+| `adc_channels` | Highest `ADCnD` defined |
+| `usart_suffix` | `"0"`, `"1"`, `""` for unnumbered, `None` for none |
+| `peripherals` | Whether the marker registers are defined |
+| `core` | `__AVR_ARCH__` |
+
+Lookups cost two compiler invocations and are cached.
+
+## Boards
+
+`BOARD_PARTS` maps a handful of board names to parts (Uno, Nano, Pro Mini,
+Mega, Leonardo, Micro, Digispark). It is a convenience shortcut, and every
+entry is still verified against the toolchain before use.
+
+## Not covered
+
+Only AVR. ESP32, ESP8266, STM32, nRF52, RP2040, and SAMD21 all resolve to
+`None`, because there is no toolchain here that can compile for them. Adding
+them to a hand-written table would reintroduce exactly the guessable data this
+module exists to remove.

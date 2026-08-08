@@ -1,19 +1,29 @@
 [project]
 name = "fw-automation-agent"
-version = "0.0.1"
-description = "Agentic firmware generation pipeline: EDA input -> discovery -> design -> codegen -> build -> deploy"
+version = "0.1.0"
+description = "Generate, build, verify, and flash embedded firmware from a hardware description or schematic"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+readme = "README.md"
 dependencies = [
     "pydantic>=2.6",
     "networkx>=3.2",
     "jinja2>=3.1",
-    "anthropic>=0.60",
 ]
 
 [project.optional-dependencies]
+# The interview agent is the only thing that talks to a model, so the SDK is
+# not a dependency of generating or building firmware.
+agent = [
+    "anthropic>=0.60",
+]
 dev = [
     "pytest>=8.0",
+    "anthropic>=0.60",
 ]
+
+[project.scripts]
+fw-agent = "cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -22,8 +32,16 @@ testpaths = ["tests"]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+# cli.py lives at the top level rather than inside a package; without this it
+# is silently left out of the wheel and the `fw-agent` entry point breaks.
+py-modules = ["cli"]
+
 [tool.setuptools.package-data]
-codegen = ["templates/*.j2"]
+# Must list the drivers directory explicitly: a single "templates/*.j2" does
+# not recurse, which shipped a wheel containing 3 of 13 templates and no
+# driver at all.
+codegen = ["templates/*.j2", "templates/drivers/*.j2"]
 
 [tool.setuptools.packages.find]
 include = ["core*", "services*", "codegen*", "agents*"]

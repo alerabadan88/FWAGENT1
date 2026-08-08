@@ -11,11 +11,21 @@ Takes a hardware description (JSON config today, EDA netlists later) and generat
 | `services/` | Toolchain, driver registry/fetcher, build service, and simulator test service — all done |
 | `agents/` | Interview agent done - reads a description, asks what it needs, validates into a brief |
 | `api/` | Not started |
-| `docs/` | Fumadocs site scaffolded; page content still stubs |
+| `docs/` | Fumadocs site, 15 written pages covering what exists |
 
 142 tests, all passing.
 
 ## Install
+
+```bash
+pip install fw-automation-agent            # gives you the `fw-agent` command
+pip install "fw-automation-agent[agent]"   # plus the interview agent
+```
+
+The Anthropic SDK is an optional extra on purpose: only the interview agent
+talks to a model, and generating or building firmware never needs it.
+
+From a checkout:
 
 ```bash
 python -m venv .venv
@@ -42,12 +52,12 @@ Tests requiring `avr-gcc` skip (visibly) when it is absent instead of faking a p
 ## End-to-end today
 
 ```bash
-./.venv/Scripts/python.exe cli.py chat                                      # describe a board in prose
-./.venv/Scripts/python.exe cli.py inspect examples/arduino-uno/config.json
-./.venv/Scripts/python.exe cli.py build   examples/arduino-uno/config.json
-./.venv/Scripts/python.exe cli.py verify  examples/arduino-uno/config.json
-./.venv/Scripts/python.exe cli.py ports                                     # then
-./.venv/Scripts/python.exe cli.py flash   examples/arduino-uno/config.json --port COM3
+fw-agent chat                                      # describe a board in prose
+fw-agent inspect examples/arduino-uno/config.json
+fw-agent build   examples/arduino-uno/config.json
+fw-agent verify  examples/arduino-uno/config.json
+fw-agent ports                                     # then
+fw-agent flash   examples/arduino-uno/config.json --port COM3
 ```
 
 `verify` builds the firmware and then runs the drivers' arithmetic **on a simulated

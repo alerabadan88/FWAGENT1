@@ -1,0 +1,44 @@
+---
+title: CLI
+description: Every command, and what its exit status means.
+---
+
+Exit status is `0` only when the requested step actually succeeded.
+
+| Command | What it does |
+|---|---|
+| `inspect <config>` | Parse and describe the board; no files written |
+| `generate <config>` | Write the firmware sources |
+| `build <config>` | Generate, compile, and report measured memory use |
+| `verify <config>` | Build, then run driver checks on a simulated MCU |
+| `hex <config>` | Build and emit `.hex` and `.bin` |
+| `schematic <netlist>` | Read a KiCad netlist; `--build` to compile it |
+| `secure <config>` | Build and emit SBOM, digests, and a measures report |
+| `chat` | Describe a board in prose; the agent asks what it needs |
+| `ports` | List serial ports, ranked by how likely each is a board |
+| `flash <config> --port P` | Build and write to a device |
+
+Common options: `-o/--output` (default `build/`) and `--f-cpu` (default
+16000000).
+
+## flash
+
+```bash
+fw-agent flash board.json --port COM3 --dry-run   # talk, write nothing
+fw-agent flash board.json --port COM3
+```
+
+`--port` is **required and never inferred**. `ports` ranks candidates by USB
+vendor and device class, but choosing is yours: writing to the wrong device is
+not undoable from software.
+
+Read-back verification is on by default; `--no-verify` opts out. A build that
+failed, or an image that does not fit, refuses to flash.
+
+## Exit statuses
+
+| Code | Meaning |
+|---|---|
+| `0` | The step succeeded |
+| `1` | It ran and failed — build error, failed check, flash error |
+| `2` | The input was wrong — bad config, unsupported part, unfinished interview |

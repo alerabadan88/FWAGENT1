@@ -1,4 +1,4 @@
 {
   "title": "Documentation",
-  "pages": ["index", "getting-started", "architecture", "core-components", "agents", "codegen", "api", "deployment", "advanced", "troubleshooting", "faq"]
+  "pages": ["index", "getting-started", "concepts", "inputs", "firmware", "reference", "limitations"]
 }

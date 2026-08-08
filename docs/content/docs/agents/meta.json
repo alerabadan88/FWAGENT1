@@ -1,4 +1,0 @@
-{
-  "title": "Agents",
-  "pages": ["discovery-agent", "design-agent", "codegen-agent", "test-agent", "deploy-agent"]
-}

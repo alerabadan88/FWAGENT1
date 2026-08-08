@@ -1,0 +1,67 @@
+---
+title: Security measures
+description: Technical measures and auditable evidence — not a compliance claim.
+---
+
+```bash
+fw-agent secure board.json -o build/
+```
+
+Emits a CycloneDX SBOM, a SHA-256 manifest, and `SECURITY.md`.
+
+## This is not a compliance claim
+
+The EU Cyber Resilience Act (Regulation (EU) 2024/2847) places obligations on a
+**manufacturer**, not on a file: a risk assessment, technical documentation, a
+coordinated vulnerability disclosure policy, a defined support period, and
+conformity assessment leading to CE marking.
+
+None of that is a property a code generator can confer, and a tool that implies
+otherwise sells a false comfort that shows up as a failed audit. What follows
+is what a build does and does not do, so a human can judge the rest.
+
+## Implemented
+
+**Watchdog recovery.** Armed at startup, fed each loop, so a device whose loop
+wedges resets instead of going quiet. The AVR trap is handled: after a watchdog
+reset the WDT stays enabled at ~16 ms, so it is disabled from `.init3` before
+anything slow runs — otherwise a recovery mechanism becomes a reset loop.
+`MCUSR` is saved before being cleared, since clearing it is required and it is
+the only record of why the device restarted.
+
+**Unexpected resets are reported.** A boot after a watchdog reset says so,
+because from outside, a device rebooting in a loop looks the same as one that
+works.
+
+**The serial receiver is disabled.** Only the transmitter is enabled, so the
+firmware exposes no serial input to accept commands on.
+
+**Firmware identity.** Version and build id, printed at boot.
+
+**No dynamic allocation.** No heap to exhaust or corrupt.
+
+**Secrets absent.** The generated sources are scanned for credential-shaped
+literals.
+
+## Not implemented, and reported as such
+
+- **Secure update.** Updates go through the stock serial bootloader, which
+  authenticates nothing: anyone with physical access can write different
+  firmware. Closing this needs a signed bootloader.
+- **Data-in-transit protection.** Readings go out in clear over UART. Fine for
+  a wired sensor inside an enclosure; not if the link leaves it.
+
+## Verification gap worth knowing
+
+**The watchdog is verified by compiling only.** GDB's AVR simulator does not
+implement the `WDR` instruction and faults on it, so watchdog code is excluded
+from simulation. Confirming it needs hardware.
+
+## Still yours
+
+Listed in every generated report so they are not mistaken for handled: the risk
+assessment and technical documentation, a vulnerability disclosure policy and
+contact point, a defined support period, incident reporting to ENISA/CSIRT,
+conformity assessment and CE marking, and fuse and lock-bit settings — which
+are applied when the device is programmed and are outside anything this
+firmware controls.

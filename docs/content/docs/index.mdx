@@ -1,8 +1,48 @@
 ---
-title: Introduction
-description: Overview of the fw-automation-agent firmware generation pipeline.
+title: fw-automation-agent
+description: Generate, build, verify, and flash AVR firmware from a hardware description or a schematic.
 ---
 
-> **Status:** stub — content not yet written.
+Give it a description of a board — or better, the schematic netlist — and it
+produces firmware that compiles, runs its own arithmetic on a simulated MCU,
+and can be written to the device.
 
-TODO: document Introduction.
+```bash
+fw-agent schematic board.net --build
+```
+
+```
+MCU      U1 -> atmega328p  (confirmed with the toolchain)
+         - DHT22      GPIO  pin=PD2
+         - HC-SR04    GPIO  echo=PB2, trigger=PB1
+NOTE     clock frequency and supply voltage are not in a netlist; the defaults shown must be confirmed
+Build OK   flash 4.57 %, RAM 4.0 %
+```
+
+## The idea it is built around
+
+**Facts that drive code generation come from the toolchain, never from a
+model's recollection.** How much RAM a part has, which USART it carries,
+whether a port exists, how wide it is — all of it is read from `avr-gcc` and
+avr-libc's own headers for that specific part.
+
+This matters because the failure mode of a guessed hardware fact is the worst
+kind: the firmware compiles, flashes, and then silently does nothing, because
+it is toggling a pin that isn't wired to anything. There is no error to see.
+
+A language model is used for exactly one thing — reading an informal
+description into structure — and everything it produces is validated before it
+reaches the generator.
+
+## What it will not do
+
+It will not tell you something worked when that was not checked. Read
+[Limitations](/docs/limitations) before relying on any of it; several things
+here are verified only by compiling, and two have never been exercised
+end to end at all.
+
+## Where to go next
+
+- [Installation](/docs/getting-started/installation) — the toolchain matters more than the Python
+- [Quick start](/docs/getting-started/quick-start) — a board to a binary
+- [Where facts come from](/docs/concepts/where-facts-come-from) — the design decision everything else follows from
