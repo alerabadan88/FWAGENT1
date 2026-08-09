@@ -68,6 +68,28 @@ class DeviceNode:
     parent: str
     properties: dict[str, str] = field(default_factory=dict)
     comment: str = ""
+    required_properties: list[str] = field(default_factory=list)
+    """What the binding says a node of this kind must carry. Filled in by
+    `plan` from the binding file itself, not from what we happen to emit."""
+    unchecked_reason: str = ""
+    """Why the binding could not be read, when it could not. Never blank
+    silently: an unchecked node must be distinguishable from a checked one."""
+
+    def emitted_properties(self) -> set[str]:
+        """Properties this node will actually carry in the devicetree.
+
+        The templates add a couple that are implied by the node's shape rather
+        than by its `properties` dict -- a gpio-keys node carries its pin on a
+        child, and a one-wire sensor carries dio-gpios. Both are declared here
+        so the required-property check compares against what is emitted, not
+        against what was passed in.
+        """
+        emitted = set(self.properties)
+        if self.compatible == "gpio-keys":
+            emitted.add("gpios")
+        elif self.parent == "root":
+            emitted.add("dio-gpios")
+        return emitted
 
     @property
     def compatible(self) -> str:
@@ -117,8 +139,9 @@ def _gpio_spec(pin: str, soc: SocProfile, flags: str) -> str:
 class ZephyrBoardPort:
     """Generates the files Zephyr needs to build for a board it has never seen."""
 
-    def __init__(self, catalog: BindingCatalog | None = None) -> None:
+    def __init__(self, catalog: BindingCatalog | None = None, fetcher=None) -> None:
         self._catalog = catalog or BindingCatalog()
+        self._fetcher = fetcher
 
     def plan(self, analysis: PCBAnalysis, answers: dict[str, str] | None = None) -> list[DeviceNode]:
         """Work out the nodes, refusing any part Zephyr cannot drive.
@@ -148,7 +171,49 @@ class ZephyrBoardPort:
                 f"{len(unresolved)} part(s) have no Zephyr driver:\n{details}{hint}"
             )
 
+        self._check_required_properties(nodes)
         return nodes
+
+    def _check_required_properties(self, nodes: list[DeviceNode]) -> None:
+        """Refuse a node missing a property its own binding marks required.
+
+        The alternative -- emitting the node anyway -- produces a devicetree
+        error at build time, which is harmless but pointless when the binding
+        says outright what is needed. What this must never do is invent a
+        value for a property it does not understand: a phandle guessed at
+        points somewhere real and wrong.
+        """
+        if self._fetcher is None:
+            return
+
+        from services.zephyr_verifier import ZephyrBindingVerifier
+
+        for node in nodes:
+            if not node.resolution.binding_path:
+                continue
+            try:
+                text = self._fetcher.fetch(node.resolution.binding_path)
+            except Exception as exc:  # noqa: BLE001 - recorded, never silent
+                node.unchecked_reason = str(exc)
+                continue
+
+            verifier = ZephyrBindingVerifier(
+                text, source=self._fetcher.source, path=node.resolution.binding_path
+            )
+            required = verifier.required_properties()
+            node.required_properties = required
+
+            missing = [p for p in required if p not in node.emitted_properties()]
+            if missing:
+                raise BoardPortError(
+                    f"'{node.resolution.part}' would be emitted as a "
+                    f"{node.compatible} node without {missing}, which its "
+                    f"binding marks required "
+                    f"({node.resolution.binding_path}). This generator does not "
+                    f"know how to fill {missing[0]!r}, and inventing a value "
+                    f"would point it at something real and wrong. Add it by "
+                    f"hand, or extend the generator for this property."
+                )
 
     def _node(self, sensor, index: int, resolution: Resolution, answers: dict) -> DeviceNode:
         label = _label(sensor.name)
