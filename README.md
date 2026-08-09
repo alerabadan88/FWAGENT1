@@ -1,19 +1,48 @@
 # fw-automation-agent
 
-Takes a hardware description (JSON config today, EDA netlists later) and generates, builds, and verifies embedded firmware.
+Describe a board. Everything that cannot be derived from an artifact gets
+asked. Out comes a Zephyr board port as a downloadable zip.
+
+**Read [ARCHITECTURE.md](ARCHITECTURE.md) first** — it explains why the code is
+shaped the way it is, which is the part that does not follow from reading it.
+
+## The one-line version
+
+A wrong hardware fact produces firmware that compiles, boots, and reports
+plausible wrong numbers. No test catches it, because the test is generated from
+the same assumption. So every value carries where it came from, and anything
+that cannot be derived is a question rather than a default.
+
+## Run the web app
+
+```bash
+pip install -e ".[web]"
+uvicorn webapp.api:app --reload        # http://127.0.0.1:8000
+```
+
+Set `ZEPHYR_BASE` to a Zephyr checkout and the peripheral counts, bindings and
+required properties are read from it rather than fetched.
 
 ## Status
 
 | Module | State |
 |---|---|
-| `core/` | Done — hardware model, JSON config parser, SQLite parts catalog |
-| `codegen/` | Done for AVR — real per-sensor drivers plus UART reporting |
-| `services/` | Toolchain, driver registry/fetcher, build service, and simulator test service — all done |
-| `agents/` | Interview agent done - reads a description, asks what it needs, validates into a brief |
-| `api/` | Not started |
-| `docs/` | Fumadocs site, 15 written pages covering what exists |
+| `core/` | Hardware model, 414-part AVR catalog from avr-libc, evidence states |
+| `agents/` | Deterministic uncertainty enumerator, normalizer, interview |
+| `codegen/zephyr/` | Board port generator: bindings, SoC facts, required properties |
+| `codegen/templates/drivers/` | AVR bare-metal drivers (earlier branch, working) |
+| `services/` | Toolchain, build, simulator, flashing, CRA/SBOM, verifiers |
+| `webapp/` | HTTP API and single-page front end, zip download |
+| `docs/` | Fumadocs site |
 
-142 tests, all passing.
+431 tests, all passing.
+
+### Not established
+
+The Zephyr board port **has not been built** — generating a devicetree is not
+compiling one. Nothing has ever been flashed; no board has been connected. The
+AVR timing-critical drivers are simulator-verified only, and the watchdog is
+not even that (GDB's AVR simulator does not implement `WDR`).
 
 ## Install
 

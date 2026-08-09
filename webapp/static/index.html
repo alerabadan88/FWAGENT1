@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fw-automation-agent</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e6e8ee;
+    --dim: #9aa3b2; --accent: #6ea8fe; --stop: #ff7b72; --ok: #7ee787;
+    --warn: #e3b341;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --line: #dfe3ea; --ink: #1b1f27;
+      --dim: #5b6472; --accent: #0b62d6; --stop: #c0392b; --ok: #1a7f37;
+      --warn: #9a6700;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 20px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--dim); font-size: 13.5px; }
+  main { max-width: 940px; margin: 0 auto; padding: 24px; }
+  section {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px; margin-bottom: 18px;
+  }
+  h2 { font-size: 14px; margin: 0 0 14px; text-transform: uppercase;
+       letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
+  label { display: block; font-size: 13px; color: var(--dim); margin: 12px 0 5px; }
+  input, select, textarea {
+    width: 100%; padding: 9px 11px; border-radius: 7px; font: inherit;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent;
+  }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  button {
+    font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 7px;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--accent); }
+  .sensor {
+    border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+    margin-bottom: 12px; position: relative;
+  }
+  .sensor button.rm {
+    position: absolute; top: 10px; right: 10px; padding: 3px 9px; font-size: 12px;
+    background: transparent; border-color: var(--line); color: var(--dim);
+  }
+  .q {
+    border-left: 3px solid var(--line); padding: 12px 0 12px 16px; margin-bottom: 18px;
+  }
+  .q.blocking { border-left-color: var(--stop); }
+  .q .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 4px; margin-bottom: 7px;
+  }
+  .q.blocking .tag { background: var(--stop); color: #fff; }
+  .q.advisory .tag { background: var(--line); color: var(--dim); }
+  .q .text { font-weight: 560; margin-bottom: 5px; }
+  .q .why { font-size: 13px; color: var(--dim); margin-bottom: 9px; }
+  ul { margin: 0; padding-left: 20px; color: var(--dim); font-size: 13.5px; }
+  li { margin-bottom: 6px; }
+  .banner {
+    border-radius: 8px; padding: 13px 16px; margin-bottom: 16px; font-size: 13.5px;
+    border: 1px solid;
+  }
+  .banner.stop { border-color: var(--stop); color: var(--stop); }
+  .banner.warn { border-color: var(--warn); color: var(--warn); }
+  .banner.ok { border-color: var(--ok); color: var(--ok); }
+  .banner b { display: block; margin-bottom: 4px; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+  .hidden { display: none; }
+  footer { color: var(--dim); font-size: 12.5px; padding: 8px 24px 40px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>fw-automation-agent</h1>
+  <p>Describe la placa. Todo lo que no se pueda derivar, se pregunta. Sale un board port de Zephyr.</p>
+</header>
+
+<main>
+  <section id="setup">
+    <h2>1 · La placa</h2>
+    <div class="row">
+      <div>
+        <label for="board">Nombre de la placa</label>
+        <input id="board" value="Acme Sensor Node v1">
+      </div>
+      <div>
+        <label for="mcu">Microcontrolador (número de parte exacto)</label>
+        <input id="mcu" value="nrf52840" placeholder="nrf52840, stm32f411xe...">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="dtsi">SoC .dtsi de Zephyr</label>
+        <input id="dtsi" value="nordic/nrf52840_qiaa.dtsi">
+      </div>
+      <div>
+        <label for="vendor">Fabricante (carpeta boards/)</label>
+        <input id="vendor" value="acme">
+      </div>
+    </div>
+
+    <h2 style="margin-top:24px">2 · Qué hay conectado</h2>
+    <div id="sensors"></div>
+    <button class="ghost" type="button" onclick="addSensor()">+ Añadir componente</button>
+    <div style="margin-top:18px">
+      <button type="button" onclick="start()">Empezar</button>
+    </div>
+  </section>
+
+  <section id="questions" class="hidden">
+    <h2>3 · Lo que hace falta saber</h2>
+    <div id="banners"></div>
+    <div id="qlist"></div>
+    <div id="actions" style="margin-top:8px"></div>
+  </section>
+
+  <section id="result" class="hidden">
+    <h2>4 · Resultado</h2>
+    <div id="resultBody"></div>
+  </section>
+</main>
+
+<footer>
+  Nada de lo que sale de aquí ha sido compilado. Lee <code>PROVENANCE.md</code> dentro del zip.
+</footer>
+
+<script>
+let sessionId = null;
+let sensorSeq = 0;
+
+const INTERFACES = ["I2C", "GPIO", "UART", "SPI", "ADC", "1-Wire"];
+
+function addSensor(preset) {
+  const n = sensorSeq++;
+  const p = preset || {};
+  const div = document.createElement("div");
+  div.className = "sensor";
+  div.id = "sensor-" + n;
+  div.innerHTML = `
+    <button class="rm" type="button" onclick="this.parentElement.remove()">quitar</button>
+    <div class="row">
+      <div><label>Parte</label><input id="s${n}-name" value="${p.name || ""}" placeholder="DHT22"></div>
+      <div><label>Qué mide</label><input id="s${n}-type" value="${p.type || ""}" placeholder="temperature"></div>
+      <div><label>Interfaz</label><select id="s${n}-if">
+        ${INTERFACES.map(i => `<option ${p.interface === i ? "selected" : ""}>${i}</option>`).join("")}
+      </select></div>
+    </div>
+    <div class="row">
+      <div><label>Dirección I2C (si aplica)</label><input id="s${n}-addr" value="${p.address || ""}" placeholder="0x76"></div>
+      <div><label>Pines (rol=pin, separados por coma)</label><input id="s${n}-pins" value="${p.pins || ""}" placeholder="pin=P0.13  o  trigger=P0.20, echo=P0.21"></div>
+    </div>`;
+  document.getElementById("sensors").appendChild(div);
+}
+
+function collectSensors() {
+  const out = [];
+  document.querySelectorAll(".sensor").forEach(div => {
+    const n = div.id.split("-")[1];
+    const name = document.getElementById(`s${n}-name`).value.trim();
+    if (!name) return;
+    const pins = {};
+    document.getElementById(`s${n}-pins`).value.split(",").forEach(part => {
+      const [role, pin] = part.split("=").map(s => (s || "").trim());
+      if (role && pin) pins[role] = pin;
+      else if (role) pins["pin"] = role;
+    });
+    out.push({
+      name,
+      type: document.getElementById(`s${n}-type`).value.trim(),
+      interface: document.getElementById(`s${n}-if`).value,
+      address: document.getElementById(`s${n}-addr`).value.trim() || null,
+      pins,
+    });
+  });
+  return out;
+}
+
+async function api(path, options) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw body.detail || body;
+  return body;
+}
+
+async function start() {
+  try {
+    const status = await api("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        board_name: document.getElementById("board").value,
+        mcu: document.getElementById("mcu").value,
+        soc_dtsi: document.getElementById("dtsi").value,
+        vendor: document.getElementById("vendor").value,
+        arch: "arm",
+        sensors: collectSensors(),
+      }),
+    });
+    sessionId = status.session;
+    render(status);
+  } catch (err) {
+    alert(typeof err === "string" ? err : JSON.stringify(err, null, 2));
+  }
+}
+
+function render(status) {
+  document.getElementById("questions").classList.remove("hidden");
+  document.getElementById("result").classList.add("hidden");
+
+  const banners = document.getElementById("banners");
+  banners.innerHTML = "";
+
+  if (status.refusals.length) {
+    banners.innerHTML += `<div class="banner stop"><b>No se puede seguir</b>${
+      status.refusals.map(r => `<div>${escape(r)}</div>`).join("")}</div>`;
+  }
+  if (status.conflicts.length) {
+    banners.innerHTML += `<div class="banner stop"><b>El diseño no cabe en la pieza — ninguna respuesta tuya lo cambia</b>${
+      status.conflicts.map(c => `<div>${escape(c)}</div>`).join("")}</div>`;
+  }
+  if (status.blocking.length) {
+    banners.innerHTML += `<div class="banner warn"><b>${status.blocking.length} pregunta(s) sin valor por defecto</b>
+      Una respuesta equivocada aquí no falla de forma visible, así que no hay nada que asumir.</div>`;
+  }
+  if (status.assumptions.length) {
+    banners.innerHTML += `<div class="banner"><b>Se usará esto si no dices otra cosa</b>
+      <ul>${status.assumptions.map(a => `<li>${escape(a)}</li>`).join("")}</ul></div>`;
+  }
+
+  const list = document.getElementById("qlist");
+  list.innerHTML = "";
+  [...status.blocking, ...status.advisory].forEach(q => {
+    const div = document.createElement("div");
+    div.className = "q " + (q.blocking ? "blocking" : "advisory");
+    const control = q.options.length
+      ? `<select id="a-${cssId(q.field)}">
+           <option value=""></option>
+           ${q.options.map(o => `<option ${o === q.default ? "selected" : ""}>${escape(o)}</option>`).join("")}
+         </select>`
+      : `<input id="a-${cssId(q.field)}" value="${q.default || ""}">`;
+    div.innerHTML = `
+      <span class="tag">${q.blocking ? "obligatoria" : "opcional"}</span>
+      <div class="text">${escape(q.question)}</div>
+      <div class="why">${escape(q.why)}</div>
+      ${control}`;
+    list.appendChild(div);
+  });
+
+  const actions = document.getElementById("actions");
+  const blocked = status.refusals.length || status.conflicts.length;
+  actions.innerHTML = blocked ? "" : `
+    <button type="button" onclick="submitAnswers()">Responder</button>
+    <button class="ghost" type="button" onclick="generate()" ${status.ready ? "" : "disabled"}>
+      ${status.ready ? "Generar board port" : "Faltan respuestas obligatorias"}
+    </button>`;
+}
+
+function cssId(field) { return field.replace(/[^a-zA-Z0-9]/g, "_"); }
+function escape(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+async function submitAnswers() {
+  const answers = {};
+  document.querySelectorAll("#qlist .q").forEach(div => {
+    const control = div.querySelector("input, select");
+    if (!control) return;
+    const field = control.id.slice(2);
+    const value = control.value.trim();
+    if (value) answers[field] = value;
+  });
+  // The id was mangled for CSS, so map it back from the rendered questions.
+  const status = await api(`/api/sessions/${sessionId}`);
+  const byId = {};
+  [...status.blocking, ...status.advisory].forEach(q => { byId[cssId(q.field)] = q.field; });
+  const mapped = {};
+  Object.entries(answers).forEach(([k, v]) => { if (byId[k]) mapped[byId[k]] = v; });
+
+  render(await api(`/api/sessions/${sessionId}/answers`, {
+    method: "POST", body: JSON.stringify({ answers: mapped }),
+  }));
+}
+
+async function generate() {
+  const result = document.getElementById("result");
+  const body = document.getElementById("resultBody");
+  try {
+    const out = await api(`/api/sessions/${sessionId}/generate`, { method: "POST" });
+    body.innerHTML = `
+      <div class="banner ok"><b>${out.count} ficheros generados</b>
+        Ninguno ha sido compilado. Lee <code>PROVENANCE.md</code> antes de fiarte de nada.</div>
+      <ul>${out.files.map(f => `<li><code>${escape(f)}</code></li>`).join("")}</ul>
+      <div style="margin-top:16px">
+        <button type="button" onclick="location.href='/api/sessions/${sessionId}/download'">
+          Descargar .zip
+        </button>
+      </div>`;
+  } catch (err) {
+    const detail = err.detail || err;
+    body.innerHTML = `<div class="banner stop"><b>${escape(err.error || "No se pudo generar")}</b>
+      ${(Array.isArray(detail) ? detail : [JSON.stringify(detail)])
+        .map(d => `<div style="white-space:pre-wrap">${escape(d)}</div>`).join("")}</div>`;
+  }
+  result.classList.remove("hidden");
+  result.scrollIntoView({ behavior: "smooth" });
+}
+
+addSensor({ name: "DHT22", type: "temperature_humidity", interface: "GPIO", pins: "pin=P0.13" });
+addSensor({ name: "Button", type: "user_input", interface: "GPIO", pins: "pin=P0.11" });
+addSensor({ name: "NEO-6M", type: "gnss", interface: "UART" });
+</script>
+</body>
+</html>
