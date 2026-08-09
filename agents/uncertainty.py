@@ -216,7 +216,10 @@ def uart_uncertainties(
             "the output is visible garbage, which is at least obvious",
             blocking=False,
             options=[str(b) for b in STANDARD_BAUDS],
-            default="9600",
+            # 800 of the 907 board ports in zephyr@v4.4.2 use 115200; three use
+            # 9600, which is what this defaulted to before the corpus was
+            # extracted. See datasets/zephyr_corpus.py.
+            default="115200",
         ))
 
     return out
@@ -247,7 +250,7 @@ def sensor_uncertainties(draft: HardwareDraft, answers: dict[str, str]) -> list[
             ))
             continue
 
-        if interface in {"GPIO", "ADC", "1-WIRE"} and not sensor.pins:
+        if interface in {"GPIO", "ADC", "1-WIRE"} and not sensor.pin_map():
             key = f"{prefix}.pins"
             if key not in answers:
                 hint = (

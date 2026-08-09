@@ -271,7 +271,7 @@ def _build_sensor(draft: "SensorDraft", index: int, answers: dict[str, str]) -> 
             f"{draft.interface!r}"
         ) from exc
 
-    pins = draft.pins
+    pins = draft.pin_map()
     answered = answers.get(f"sensors[{index}].pins")
     if answered:
         parts = [p.strip() for p in str(answered).replace(",", " ").split() if p.strip()]

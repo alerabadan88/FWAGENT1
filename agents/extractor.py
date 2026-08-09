@@ -36,9 +36,14 @@ unanswered. Do not ask about sample rates, loop periods, baud rates, or clock \
 frequency -- those are always asked separately by the caller, so raising them here \
 only duplicates the question.
 
-If the user wants something this system cannot do -- a non-AVR part, wireless, \
-a protocol like MQTT or QoS levels, an unsupported sensor -- put it in `unsupported` \
-in plain words rather than pretending it is covered.
+This system generates Zephyr board ports, so any microcontroller Zephyr targets is \
+in scope: ARM Cortex-M, RISC-V, Xtensa and the rest. Do not report a part as \
+unsupported for being non-AVR -- whether Zephyr ships a driver for it is checked \
+against Zephyr's own bindings afterwards, by code, not by you.
+
+Put something in `unsupported` only when this system genuinely cannot do it: \
+wireless stacks, MQTT or QoS levels, anything about cloud connectivity. Say it in \
+plain words rather than pretending it is covered.
 
 Respond with JSON only, matching the given schema."""
 

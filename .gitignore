@@ -15,3 +15,10 @@ out-zephyr/
 
 # setuptools build output
 build/
+
+# extracted corpus (regenerate with datasets/zephyr_corpus.py)
+datasets/data/
+
+# credentials must never be committed
+.env
+*.key

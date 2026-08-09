@@ -49,7 +49,7 @@ from agents.normalizer import (
     required_questions,
 )
 from codegen.zephyr.checks import contention, soc_facts, unsupported_soc
-from agents.schemas import HardwareDraft, SensorDraft
+from agents.schemas import HardwareDraft, PinAssignment, SensorDraft
 from codegen.zephyr.binding_fetch import BindingFetcher
 from codegen.zephyr.board_port import BoardPortError, SocProfile, ZephyrBoardPort
 from core.hardware_model import MCU, InterfaceType, PCBAnalysis, Sensor
@@ -180,7 +180,7 @@ def _persist(session: Session) -> None:
         "console_rx": session.soc.console_rx if session.soc else "",
         "sensors": [
             {"name": s.name, "type": s.type, "interface": s.interface,
-             "address": s.address, "pins": s.pins or {}}
+             "address": s.address, "pins": s.pin_map()}
             for s in session.draft.sensors
         ],
         "answers": session.answers,
@@ -307,7 +307,7 @@ def _analysis(session: Session) -> PCBAnalysis:
 
     sensors: list[Sensor] = []
     for index, drafted in enumerate(draft.sensors):
-        pins = dict(drafted.pins or {})
+        pins = drafted.pin_map()
         answered = answers.get(f"sensors[{index}].pins")
         if answered and not pins:
             parts = [p.strip() for p in answered.replace(",", " ").split() if p.strip()]
@@ -423,7 +423,8 @@ def start(request: StartRequest) -> StatusOut:
         sensors=[
             SensorDraft(
                 name=s.name, type=s.type or "unspecified", interface=s.interface,
-                address=s.address, pins=s.pins or None,
+                address=s.address,
+                pins=[PinAssignment(role=r, pin=v) for r, v in (s.pins or {}).items()],
                 bus="I2C1" if s.interface.upper() == "I2C" else None,
             )
             for s in request.sensors
@@ -683,7 +684,7 @@ def describe(request: DescribeRequest) -> dict:
         "board_name": hardware.board_name or "",
         "sensors": [
             {"name": s.name, "type": s.type, "interface": s.interface,
-             "address": s.address, "pins": s.pins or {},
+             "address": s.address, "pins": s.pin_map(),
              "confidence": s.confidence.value}
             for s in hardware.sensors
         ],

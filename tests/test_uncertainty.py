@@ -79,7 +79,9 @@ def test_the_baud_rate_may_default_because_it_fails_visibly():
     found = {u.field: u for u in scan_draft(draft())}
 
     assert not found["uart_baud"].blocking
-    assert found["uart_baud"].default == "9600"
+    # 800 of the 907 board ports in zephyr@v4.4.2 use this; three use 9600,
+    # which is what it defaulted to until the corpus was extracted.
+    assert found["uart_baud"].default == "115200"
 
 
 # --- Analog, the purest silent failure ----------------------------------------
@@ -228,7 +230,7 @@ def test_an_answered_board_has_nothing_blocking_left():
 def test_defaults_that_will_be_used_are_stated_rather_than_applied_quietly():
     stated = assumed_defaults(draft())
 
-    assert any(s.startswith("uart_baud = 9600") for s in stated)
+    assert any(s.startswith("uart_baud = 115200") for s in stated)
     assert any(s.startswith("loop_period_ms = 2000") for s in stated)
 
 

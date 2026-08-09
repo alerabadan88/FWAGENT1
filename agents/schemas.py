@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Confidence(str, Enum):
@@ -22,20 +22,52 @@ class Confidence(str, Enum):
     ASSUMED = "assumed"    # a default the model chose; always worth confirming
 
 
+class PinAssignment(BaseModel):
+    """One pin, and the role it plays for the part.
+
+    A list of these rather than a `dict[str, str]` because structured outputs
+    cannot express an object with arbitrary keys: Pydantic emits
+    `additionalProperties: {"type": "string"}` and the API rejects it, while
+    closing it to `false` would make the field permanently empty. A list of
+    pairs says the same thing and survives the round trip.
+    """
+
+    role: str = Field(description="What the pin does for this part: pin, trigger, echo, int")
+    pin: str = Field(description="The pin itself, e.g. P0.13, PD2 or D2")
+
+
 class SensorDraft(BaseModel):
     """A sensor as the model understood it. Not yet trusted."""
 
     name: str = Field(description="Part number as printed on the device, e.g. DHT22")
     type: str = Field(description="What it measures, e.g. temperature_humidity")
     interface: str = Field(description="One of I2C, SPI, UART, GPIO, ADC, 1-Wire")
-    pins: dict[str, str] | None = Field(
-        default=None,
-        description="Pin labels by role, e.g. {'pin': 'D2'} or {'trigger': 'D9', 'echo': 'D10'}",
+    pins: list[PinAssignment] = Field(
+        default_factory=list,
+        description="Pins this part uses, by role. Empty when nobody said.",
     )
     bus: str | None = Field(default=None, description="Bus or port name, e.g. I2C1, UART2")
     address: str | None = Field(default=None, description="I2C address, e.g. 0x68")
     required: bool = Field(default=True, description="False if the board works without it")
     confidence: Confidence = Confidence.STATED
+
+    @field_validator("pins", mode="before")
+    @classmethod
+    def _accept_a_mapping(cls, value):
+        """Take `{"trigger": "P0.20"}` as well as the list form.
+
+        The list is what the JSON schema must say, because structured outputs
+        cannot express an object with arbitrary keys. A mapping is what every
+        caller in this codebase naturally writes, and translating here keeps
+        one shape on the wire without forcing the other on the code.
+        """
+        if isinstance(value, dict):
+            return [{"role": role, "pin": pin} for role, pin in value.items()]
+        return [] if value is None else value
+
+    def pin_map(self) -> dict[str, str]:
+        """The pins as a role -> pin mapping, which is how the rest reads them."""
+        return {p.role: p.pin for p in self.pins if p.role and p.pin}
 
 
 class HardwareDraft(BaseModel):
