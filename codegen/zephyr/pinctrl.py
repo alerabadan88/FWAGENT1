@@ -75,6 +75,65 @@ def nordic_uart(label: str, pins: UartPins) -> str:
 """
 
 
+def nordic_i2c(label: str, pins: UartPins) -> str:
+    """I2C needs muxing too, and a `compatible` the SoC .dtsi leaves open.
+
+    Nordic's i2c nodes ship without one because the block can be TWI or TWIM
+    and the board decides. A node with no compatible binds no driver, and the
+    build says `'pinctrl-0' is marked as required` -- which names the second
+    problem and hides the first.
+    """
+    sda_port, sda_offset = _split(pins.tx)
+    scl_port, scl_offset = _split(pins.rx)
+    return f"""&pinctrl {{
+	{label}_default: {label}_default {{
+		group1 {{
+			psels = <NRF_PSEL(TWIM_SDA, {sda_port}, {sda_offset})>,
+				<NRF_PSEL(TWIM_SCL, {scl_port}, {scl_offset})>;
+		}};
+	}};
+
+	{label}_sleep: {label}_sleep {{
+		group1 {{
+			psels = <NRF_PSEL(TWIM_SDA, {sda_port}, {sda_offset})>,
+				<NRF_PSEL(TWIM_SCL, {scl_port}, {scl_offset})>;
+			low-power-enable;
+		}};
+	}};
+}};
+"""
+
+
+#: The compatible a vendor's bus node needs when its .dtsi leaves it open.
+BUS_COMPATIBLES = {
+    "nordic": {"i2c": "nordic,nrf-twim"},
+    "acme": {"i2c": "nordic,nrf-twim"},
+}
+
+I2C_DIALECTS = {"nordic": nordic_i2c, "acme": nordic_i2c}
+
+
+def i2c_pinctrl(vendor: str, label: str, pins: UartPins | None) -> str:
+    if pins is None or not (pins.tx and pins.rx):
+        raise PinctrlUnsupported(
+            f"the SDA and SCL pads for {label} were not given. Which pads the "
+            f"bus comes out on is a property of the board -- there is no "
+            f"default, and a wrong one drives the bus into pins nothing is "
+            f"connected to, where every transfer times out."
+        )
+    dialect = I2C_DIALECTS.get(vendor.lower())
+    if dialect is None:
+        raise PinctrlUnsupported(
+            f"no I2C pin-control dialect is known for vendor '{vendor}'. Write "
+            f"the &pinctrl block for {label} by hand."
+        )
+    return dialect(label, pins)
+
+
+def bus_compatible(vendor: str, bus: str) -> str:
+    return BUS_COMPATIBLES.get(vendor.lower(), {}).get(bus, "")
+
+
 #: Peripherals a vendor needs enabled beyond the obvious ones. On Nordic, GPIO
 #: *interrupts* are served by GPIOTE, which is a separate node: without it the
 #: build fails on a static assertion rather than on anything that mentions the

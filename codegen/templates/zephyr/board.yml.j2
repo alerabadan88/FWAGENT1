@@ -5,3 +5,9 @@ board:
   vendor: {{ soc.vendor }}
   socs:
     - name: {{ soc.name }}
+{% if cpucluster %}
+      # A multi-core SoC. Without this qualifier west rejects the board as
+      # ambiguous, from inside boards.cmake, without saying what is missing.
+      cpuclusters:
+        - name: {{ cpucluster }}
+{% endif %}

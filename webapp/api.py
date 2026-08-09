@@ -124,6 +124,8 @@ class StartRequest(BaseModel):
     )
     console_tx: str = Field(default="", description="Console UART TX pad, e.g. P0.6")
     console_rx: str = Field(default="", description="Console UART RX pad, e.g. P0.8")
+    i2c_sda: str = Field(default="", description="I2C SDA pad, e.g. P0.26")
+    i2c_scl: str = Field(default="", description="I2C SCL pad, e.g. P0.27")
     sensors: list[SensorIn] = Field(default_factory=list)
     description: str = Field(default="", description="Free text, if a model is available")
 
@@ -178,6 +180,8 @@ def _persist(session: Session) -> None:
         "kconfig_soc": session.soc.kconfig_soc if session.soc else "",
         "console_tx": session.soc.console_tx if session.soc else "",
         "console_rx": session.soc.console_rx if session.soc else "",
+        "i2c_sda": session.soc.i2c_sda if session.soc else "",
+        "i2c_scl": session.soc.i2c_scl if session.soc else "",
         "sensors": [
             {"name": s.name, "type": s.type, "interface": s.interface,
              "address": s.address, "pins": s.pin_map()}
@@ -221,6 +225,8 @@ def _restore(session_id: str) -> Session | None:
             kconfig_soc=body.get("kconfig_soc") or "",
             console_tx=body.get("console_tx") or "",
             console_rx=body.get("console_rx") or "",
+            i2c_sda=body.get("i2c_sda") or "",
+            i2c_scl=body.get("i2c_scl") or "",
         ),
     )
     SESSIONS[session_id] = session
@@ -443,6 +449,8 @@ def start(request: StartRequest) -> StatusOut:
             kconfig_soc=request.kconfig_soc.strip(),
             console_tx=request.console_tx.strip(),
             console_rx=request.console_rx.strip(),
+            i2c_sda=request.i2c_sda.strip(),
+            i2c_scl=request.i2c_scl.strip(),
         ),
     )
     SESSIONS[session.id] = session

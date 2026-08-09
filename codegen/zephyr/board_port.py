@@ -86,6 +86,9 @@ class SocProfile:
     console_tx: str = ""
     """Which pad the console UART transmits on. A board fact, so it is asked."""
     console_rx: str = ""
+    i2c_sda: str = ""
+    """Which pad SDA comes out on. A board fact, asked like the console pads."""
+    i2c_scl: str = ""
     kconfig_soc: str = ""
     """The Kconfig symbol a board selects, which is the *variant*, not the die:
     an nRF52840 board selects SOC_NRF52840_QIAA. The variant decides the memory
@@ -194,6 +197,103 @@ def _gpio_controllers(nodes: list[DeviceNode], soc: SocProfile) -> list[str]:
             used.add(spec.split()[0].lstrip("<&"))
 
     return sorted(used) or [f"{base}0"]
+
+
+def _cpucluster_of(soc: SocProfile) -> str:
+    """Which core a multi-core SoC's .dtsi describes.
+
+    board.yml has to name it, and Zephyr's own file naming carries it --
+    `nrf5340_cpuapp_qkaa.dtsi` is the application core. Omitting it makes west
+    reject the board as ambiguous, from inside boards.cmake, without saying
+    that a qualifier is what is missing.
+    """
+    from codegen.zephyr.soc_facts import ZephyrSocCatalog
+
+    return ZephyrSocCatalog().facts(soc.dtsi_include).cpucluster if soc.dtsi_include else ""
+
+
+def _verify_against_soc(soc: SocProfile, nodes: list[DeviceNode]) -> None:
+    """Refuse to name a node the SoC does not define.
+
+    Found by generating boards across the Nordic family and building them: the
+    generator assumed `uart0`, `i2c0`, `gpio0` and `gpio1` exist everywhere.
+    An nRF52811 has one GPIO controller, and referencing `gpio1` gives
+    `undefined node label 'gpio1'` -- which says where and not why.
+
+    Silent when there is no checkout to consult. Not knowing which labels exist
+    is different from knowing they do not.
+    """
+    from codegen.zephyr.soc_facts import ZephyrSocCatalog
+
+    catalog = ZephyrSocCatalog()
+    if not catalog.available or not soc.dtsi_include:
+        return
+
+    facts = catalog.facts(soc.dtsi_include)
+    if not facts.labels:
+        return
+
+    wanted = {soc.uart_label, *_gpio_controllers(nodes, soc)}
+    if any(n.parent == "i2c" for n in nodes):
+        wanted.add(soc.i2c_label)
+
+    missing = sorted(label for label in wanted if label and label not in facts.labels)
+    if not missing:
+        return
+
+    present = sorted(
+        label for label in facts.labels
+        if label.startswith(("gpio", "uart", "i2c")) and not label.endswith(("_default", "_sleep"))
+    )
+    raise BoardPortError(
+        f"{soc.dtsi_include} defines no {missing}. A board port that names a "
+        f"node the SoC does not have fails with `undefined node label`, which "
+        f"says where and not why.\n"
+        f"This part has: {', '.join(present) or 'nothing recognisable'}.\n"
+        f"Either a pin was given on a port this package does not bring out, or "
+        f"the peripheral labels need setting for this SoC."
+    )
+
+
+def _bus_compatible(soc: SocProfile, bus: str) -> str:
+    from codegen.zephyr.pinctrl import bus_compatible
+
+    return bus_compatible(soc.vendor, bus)
+
+
+def _i2c_pinctrl(soc: SocProfile, needed: bool) -> tuple[str, bool]:
+    """The &pinctrl block for the I2C bus, when anything is on it.
+
+    Found by building rather than by reading: a Nordic i2c node ships with no
+    compatible and no pin mux, and the build reports only `'pinctrl-0' is
+    marked as required`, which names the second problem and hides the first.
+    """
+    from codegen.zephyr.pinctrl import (
+        I2C_DIALECTS, PinctrlUnsupported, UartPins, i2c_pinctrl,
+    )
+
+    if not needed:
+        return "", False
+
+    has_pads = bool(soc.i2c_sda and soc.i2c_scl)
+    if soc.vendor.lower() in I2C_DIALECTS and not has_pads:
+        raise BoardPortError(
+            f"there are parts on I2C but the SDA and SCL pads were not given. "
+            f"On {soc.vendor} the bus is muxed onto specific pins, and which "
+            f"pads those are is a property of the board. A wrong pair drives "
+            f"the bus into pins nothing is connected to and every transfer "
+            f"times out. Set i2c_sda and i2c_scl."
+        )
+
+    try:
+        return i2c_pinctrl(soc.vendor, soc.i2c_label, UartPins(soc.i2c_sda, soc.i2c_scl)), True
+    except PinctrlUnsupported as exc:
+        return (
+            "/* No pin control was generated for the I2C bus.\n"
+            " *\n"
+            f" * {exc}\n"
+            " */"
+        ), False
 
 
 def _implied(soc: SocProfile) -> list[str]:
@@ -410,7 +510,11 @@ class ZephyrBoardPort:
         nodes = self.plan(analysis, answers)
         board = _label(board_name)
 
+        _verify_against_soc(soc, nodes)
         pinctrl_block, has_pinctrl = _console_pinctrl(soc)
+        i2c_block, has_i2c_pinctrl = _i2c_pinctrl(
+            soc, any(n.parent == "i2c" for n in nodes)
+        )
 
         env = Environment(
             loader=FileSystemLoader(TEMPLATES),
@@ -437,6 +541,10 @@ class ZephyrBoardPort:
             "implied_peripherals": _implied(soc),
             "console_pinctrl": pinctrl_block,
             "console_has_pinctrl": has_pinctrl,
+            "i2c_pinctrl": i2c_block,
+            "i2c_has_pinctrl": has_i2c_pinctrl,
+            "i2c_compatible": _bus_compatible(soc, "i2c"),
+            "cpucluster": _cpucluster_of(soc),
             "gpio_spec": lambda pin, flags: _gpio_spec(pin, soc, flags),
             "gpio_flags": lambda prop: GPIO_PROPERTY_FLAGS.get(prop, "GPIO_ACTIVE_HIGH"),
             "pin_of": lambda node: self._pin_for(node, analysis, answers),

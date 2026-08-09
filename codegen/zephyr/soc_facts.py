@@ -35,6 +35,17 @@ _PATTERNS = {
 
 _INCLUDE = re.compile(r'^\s*#include\s+[<"]([^>"]+)[>"]', re.MULTILINE)
 
+#: `label: node@addr {` -- every label a board port may legally reference.
+_LABEL = re.compile(r"^\s*(\w+)\s*:\s*[\w@,.+-]+\s*\{", re.MULTILINE)
+
+#: Zephyr names cluster-specific SoC files `<soc>_<cluster>[_<package>].dtsi`.
+_CPUCLUSTER = re.compile(r"_(cpu\w+?)(?:_|\.)")
+
+
+def _cpucluster(dtsi_include: str) -> str:
+    match = _CPUCLUSTER.search(dtsi_include.rsplit("/", 1)[-1])
+    return match.group(1) if match else ""
+
 
 @dataclass(frozen=True)
 class SocFacts:
@@ -44,6 +55,15 @@ class SocFacts:
     counts: dict[str, int] = field(default_factory=dict)
     source: str = ""
     files_read: tuple[str, ...] = ()
+
+    labels: frozenset[str] = frozenset()
+    """Every node label the SoC devicetree defines. A board port that names one
+    the SoC does not have fails with `undefined node label`, which says where
+    but not why."""
+    cpucluster: str = ""
+    """For a multi-core SoC, which core this .dtsi describes. Read from the
+    file name -- `nrf5340_cpuapp_qkaa.dtsi` is the application core -- because
+    Zephyr's own naming carries it and board.yml has to repeat it."""
 
     def count(self, peripheral: str) -> int | None:
         """How many instances, or None when nothing could be read.
@@ -92,6 +112,8 @@ class ZephyrSocCatalog:
             counts={k: v for k, v in counts.items() if v},
             source=f"{self._base.name} dts/{dtsi_include}",
             files_read=tuple(read),
+            labels=frozenset(_LABEL.findall(text)),
+            cpucluster=_cpucluster(dtsi_include),
         )
 
     def _read_with_includes(self, relative: str, depth: int = 4) -> tuple[str, list[str]]:

@@ -33,6 +33,7 @@ BOARD = {
     "board_name": "Acme Sensor Node v1", "mcu": "nrf52840",
     "soc_dtsi": "nordic/nrf52840_qiaa.dtsi", "vendor": "acme", "arch": "arm",
     "kconfig_soc": "SOC_NRF52840_QIAA", "console_tx": "P0.6", "console_rx": "P0.8",
+    "i2c_sda": "P0.26", "i2c_scl": "P0.27",
 }
 
 

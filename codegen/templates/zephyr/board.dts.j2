@@ -99,9 +99,21 @@
 };
 
 {% if i2c_nodes %}
+{{ i2c_pinctrl }}
+
 &{{ soc.i2c_label }} {
+{% if i2c_compatible %}
+	/* The SoC .dtsi leaves this open because the block can be TWI or TWIM and
+	 * the board decides. A node with no compatible binds no driver. */
+	compatible = "{{ i2c_compatible }}";
+{% endif %}
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
+{% if i2c_has_pinctrl %}
+	pinctrl-0 = <&{{ soc.i2c_label }}_default>;
+	pinctrl-1 = <&{{ soc.i2c_label }}_sleep>;
+	pinctrl-names = "default", "sleep";
+{% endif %}
 
 {% for node in i2c_nodes %}
 	{{ node.label }}: {{ node.label }}@{{ node.properties["reg"] | replace("<0x", "") | replace(">", "") }} {

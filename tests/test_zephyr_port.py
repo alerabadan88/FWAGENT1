@@ -38,6 +38,9 @@ SOC = SocProfile(
     # refuses without them on a vendor that needs pin muxing -- see
     # test_a_vendor_needing_pinctrl_refuses_without_the_console_pads.
     console_tx="P0.6", console_rx="P0.8",
+    # Same category as the console pads: which pads the bus comes out on is a
+    # board fact, and generation refuses without them.
+    i2c_sda="P0.26", i2c_scl="P0.27",
 )
 
 DHT_BINDING = '''
