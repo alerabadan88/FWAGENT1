@@ -1,0 +1,8 @@
+# Runtime dependencies for a deployed instance. The dev/test extras and the
+# Anthropic SDK are deliberately absent: the interview questions are
+# enumerated deterministically, so the product works with no model at all.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+jinja2>=3.1
+networkx>=3.0

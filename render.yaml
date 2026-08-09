@@ -1,0 +1,15 @@
+# Render keeps a disk, which is what this needs. Free tier spins down when
+# idle; the disk survives that.
+services:
+  - type: web
+    name: fw-automation-agent
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: FWAGENT_DATA
+        value: /data
+    disk:
+      name: fwagent-data
+      mountPath: /data
+      sizeGB: 1

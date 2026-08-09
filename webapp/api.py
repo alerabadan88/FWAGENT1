@@ -30,6 +30,7 @@ key the interview still works -- the questions are enumerated deterministically
 from __future__ import annotations
 
 import io
+import os
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -621,7 +622,8 @@ def health() -> dict:
         "zephyr_ref": catalog.ref,
         "sessions_in_memory": len(SESSIONS),
         "sessions_stored": len(store.list_sessions(limit=10_000)),
-        "data_dir": str(store.DATA_DIR),
+        "storage": store.storage_status(),
+        "zephyr_checkout": bool(os.environ.get("ZEPHYR_BASE")),
     }
 
 

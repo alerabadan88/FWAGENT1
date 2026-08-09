@@ -53,6 +53,47 @@ CORPUS = DATA_DIR / "corpus.jsonl"
 
 _LOCK = threading.Lock()
 
+#: Set once we learn the filesystem will not keep anything. Serverless hosts
+#: give each invocation its own /tmp, so writes appear to succeed and the data
+#: is gone by the next request. That is the worst possible failure for a
+#: corpus: it looks like it is collecting and it is not.
+_STORAGE_NOTE = ""
+
+
+def storage_status() -> dict[str, object]:
+    """Whether anything written here will still be there later.
+
+    Reported to the UI rather than assumed, because a product that silently
+    forgets is worse than one that says it cannot remember.
+    """
+    _ensure_checked()
+    return {
+        "persistent": not _STORAGE_NOTE,
+        "path": str(DATA_DIR),
+        "note": _STORAGE_NOTE or "Sessions and the corpus are written to disk.",
+    }
+
+
+def _ensure_checked() -> None:
+    global _STORAGE_NOTE
+    if _STORAGE_NOTE:
+        return
+    if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        _STORAGE_NOTE = (
+            "Running on a serverless host, where each request gets its own "
+            "temporary filesystem. Sessions will not survive between requests "
+            "and the corpus collects nothing. Point FWAGENT_DATA at a mounted "
+            "volume, or use a host that keeps a disk."
+        )
+        return
+    try:
+        _ensure()
+        probe = DATA_DIR / ".writable"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        _STORAGE_NOTE = f"{DATA_DIR} is not writable ({exc}); nothing is being saved."
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

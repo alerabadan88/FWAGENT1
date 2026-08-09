@@ -93,6 +93,8 @@
 </header>
 
 <main>
+  <div id="envBanner"></div>
+
   <section id="describe">
     <h2>0 · Describe it in your own words <span class="plain">(optional, needs a model)</span></h2>
     <textarea id="prose" rows="3"
@@ -435,9 +437,33 @@ async function loadCorpus() {
   } catch { /* likewise */ }
 }
 
+async function checkEnvironment() {
+  // A deployed instance can be missing things a local one has. Saying so up
+  // front is the whole point: a product that silently forgets is worse than
+  // one that admits it cannot remember.
+  try {
+    const h = await api("/api/health");
+    const notes = [];
+    if (h.storage && !h.storage.persistent) {
+      notes.push(`<b>Nothing is being saved</b>${escape(h.storage.note)}`);
+    }
+    if (!h.zephyr_checkout) {
+      notes.push(`<b>No Zephyr checkout on this host</b>
+        Bindings still resolve over the network, but peripheral counts cannot be
+        read. The "which USART is the console on" question is not asked, and the
+        contention check stays quiet. Both abstain rather than guess.`);
+    }
+    if (notes.length) {
+      document.getElementById("envBanner").innerHTML =
+        notes.map(n => `<div class="banner warn">${n}</div>`).join("");
+    }
+  } catch { /* the banner must never break the page */ }
+}
+
 addSensor({ name: "DHT22", type: "temperature_humidity", interface: "GPIO", pins: "pin=P0.13" });
 addSensor({ name: "Button", type: "user_input", interface: "GPIO", pins: "pin=P0.11" });
 addSensor({ name: "NEO-6M", type: "gnss", interface: "UART" });
+checkEnvironment();
 loadHistory();
 loadCorpus();
 </script>
