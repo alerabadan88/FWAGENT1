@@ -344,8 +344,12 @@ def readme(*sensors) -> str:
     return port_files(*sensors)["README.md"]
 
 
-def test_the_readme_says_the_port_was_never_built():
-    assert "has **not** been built here" in readme(dht())
+def test_the_readme_does_not_claim_this_port_was_built():
+    """A port of this shape builds; that is not a claim about this one."""
+    text = readme(dht())
+
+    assert "**This particular port has not**" in text
+    assert "building is not running" in text
 
 
 def test_the_readme_separates_derived_facts_from_answered_ones():

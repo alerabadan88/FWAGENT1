@@ -37,12 +37,28 @@ required properties are read from it rather than fetched.
 
 431 tests, all passing.
 
-### Not established
+### What is established
 
-The Zephyr board port **has not been built** — generating a devicetree is not
-compiling one. Nothing has ever been flashed; no board has been connected. The
-AVR timing-critical drivers are simulator-verified only, and the watchdog is
-not even that (GDB's AVR simulator does not implement `WDR`).
+A generated board port **builds**. An nRF52840 with a DHT22 and a button,
+against Zephyr v4.4.2 with the Zephyr SDK 1.0.1 ARM toolchain:
+
+```
+[178/178] Linking C executable zephyr/zephyr.elf
+Memory region         Used Size  Region Size  %age Used
+           FLASH:       34288 B         1 MB      3.27%
+             RAM:        9120 B       256 KB      3.48%
+```
+
+`dht_api` — Zephyr's own DHT driver — is in the binary. Nothing about the
+register map was asserted by this project.
+
+### What is not
+
+Building is not running. **Nothing has ever been on hardware**; no board has
+been connected at any point, so the pin numbers, the active level and the pull
+are only as good as the answers they came from. The AVR timing-critical drivers
+are simulator-verified only, and the watchdog is not even that (GDB's AVR
+simulator does not implement `WDR`).
 
 ## Install
 

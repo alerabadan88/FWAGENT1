@@ -307,9 +307,11 @@ fact.
 
 ## Not established
 
-This port has not been built. Generating a devicetree is not compiling one, and
-compiling one is not running it. Treat the first `west build` as the real check
-and the first bring-up as the only proof.
+This port has not been built. A port of the same shape has -- an nRF52840 with
+a DHT22 and a button, linking to 34288 B of flash against Zephyr v4.4.2 -- but
+that says nothing about this one, and building is not running. Nothing here has
+been on hardware. Treat the first `west build` as the real check and the first
+bring-up as the only proof.
 
 ## Files
 

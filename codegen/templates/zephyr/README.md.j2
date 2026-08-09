@@ -38,6 +38,8 @@ reports no fault.
 west build -b {{ board }} app
 ```
 
-This has **not** been built here. No Zephyr SDK is installed on the machine
-that generated it, so the files are structurally correct and unproven. Treat
-the first `west build` as the real check.
+A port of this shape has been built: an nRF52840 with a DHT22 and a button
+linked to 34288 B of flash against Zephyr v4.4.2, with Zephyr's own `dht_api`
+in the binary. **This particular port has not**, and building is not running:
+nothing here has been on hardware, so the pin numbers, the active level and
+the pull are still only as good as the answers they came from.

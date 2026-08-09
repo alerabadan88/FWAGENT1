@@ -71,7 +71,7 @@ class SocProfile:
     """
 
     name: str
-    """The SoC's Kconfig name, e.g. 'nrf52840' or 'stm32f411xe'."""
+    """The SoC as board.yml names it -- the die, e.g. 'nrf52840'."""
     arch: str
     """'arm', 'riscv', 'xtensa'..."""
     dtsi_include: str
@@ -83,6 +83,18 @@ class SocProfile:
     gpio_label: str = "gpio0"
     runner: str = ""
     """west runner for flashing, e.g. 'nrfjprog'. Empty when unknown."""
+    console_tx: str = ""
+    """Which pad the console UART transmits on. A board fact, so it is asked."""
+    console_rx: str = ""
+    kconfig_soc: str = ""
+    """The Kconfig symbol a board selects, which is the *variant*, not the die:
+    an nRF52840 board selects SOC_NRF52840_QIAA. The variant decides the memory
+    sizes, so the die symbol configures the wrong part."""
+
+    @property
+    def soc_symbol(self) -> str:
+        """The Kconfig symbol to select, falling back to the die's name."""
+        return (self.kconfig_soc or f"SOC_{self.name}").upper()
 
 
 @dataclass
@@ -160,6 +172,52 @@ def _gpio_spec(pin: str, soc: SocProfile, flags: str) -> str:
 
     base = soc.gpio_label.rstrip("0123456789") or "gpio"
     return f"<&{base}{controller} {number} {flags}>"
+
+
+def _gpio_controllers(nodes: list[DeviceNode], soc: SocProfile) -> list[str]:
+    """Every GPIO controller a generated node points at.
+
+    They arrive `status = "disabled"` from the SoC .dtsi and the board is what
+    turns them on. A phandle into a disabled controller does not warn -- the
+    device object is never emitted and the link fails on an undeclared symbol,
+    which is a long way from the cause.
+    """
+    base = soc.gpio_label.rstrip("0123456789") or "gpio"
+    used: set[str] = set()
+
+    for node in nodes:
+        for pin in list(node.gpio_properties.values()) or list(node.pins.values()):
+            try:
+                spec = _gpio_spec(pin, soc, "0")
+            except BoardPortError:
+                continue
+            used.add(spec.split()[0].lstrip("<&"))
+
+    return sorted(used) or [f"{base}0"]
+
+
+def _implied(soc: SocProfile) -> list[str]:
+    from codegen.zephyr.pinctrl import implied_peripherals
+
+    return list(implied_peripherals(soc.vendor))
+
+
+def _console_pinctrl(soc: SocProfile) -> str:
+    """The &pinctrl block for the console UART, or a comment saying why not."""
+    from codegen.zephyr.pinctrl import PinctrlUnsupported, UartPins, uart_pinctrl
+
+    pins = UartPins(soc.console_tx, soc.console_rx) if soc.console_tx and soc.console_rx else None
+    try:
+        return uart_pinctrl(soc.vendor, soc.uart_label, pins)
+    except PinctrlUnsupported as exc:
+        return (
+            "/* No pin control was generated for the console UART.\n"
+            " *\n"
+            f" * {exc}\n"
+            " *\n"
+            " * The board will not build until a &pinctrl block exists for it.\n"
+            " */"
+        )
 
 
 class ZephyrBoardPort:
@@ -345,6 +403,9 @@ class ZephyrBoardPort:
                         and n.compatible != "gpio-keys"],
             "zephyr_ref": self._catalog.ref,
             "binding_source": self._catalog.source,
+            "gpio_controllers": _gpio_controllers(nodes, soc),
+            "implied_peripherals": _implied(soc),
+            "console_pinctrl": _console_pinctrl(soc),
             "gpio_spec": lambda pin, flags: _gpio_spec(pin, soc, flags),
             "gpio_flags": lambda prop: GPIO_PROPERTY_FLAGS.get(prop, "GPIO_ACTIVE_HIGH"),
             "pin_of": lambda node: self._pin_for(node, analysis, answers),

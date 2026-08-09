@@ -67,6 +67,35 @@
 {% endfor %}
 };
 
+{{ console_pinctrl }}
+
+/*
+ * Peripherals arrive `status = "disabled"` from the SoC .dtsi; the board is
+ * what turns on the ones it actually wired. A phandle into a disabled
+ * controller does not warn -- the device object is never emitted and the link
+ * fails on an undeclared symbol, a long way from the cause.
+ */
+{% for controller in gpio_controllers %}
+&{{ controller }} {
+	status = "okay";
+};
+{% endfor %}
+
+{% for peripheral in implied_peripherals %}
+/* Needed by the GPIO interrupts above, not by anything that names it. */
+&{{ peripheral }} {
+	status = "okay";
+};
+{% endfor %}
+
+&{{ soc.uart_label }} {
+	status = "okay";
+	current-speed = <{{ uart_baud | default(115200) }}>;
+	pinctrl-0 = <&{{ soc.uart_label }}_default>;
+	pinctrl-1 = <&{{ soc.uart_label }}_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
 {% if i2c_nodes %}
 &{{ soc.i2c_label }} {
 	status = "okay";
