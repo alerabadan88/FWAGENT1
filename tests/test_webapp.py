@@ -32,6 +32,7 @@ GPS = {"name": "NEO-6M", "type": "gnss", "interface": "UART"}
 BOARD = {
     "board_name": "Acme Sensor Node v1", "mcu": "nrf52840",
     "soc_dtsi": "nordic/nrf52840_qiaa.dtsi", "vendor": "acme", "arch": "arm",
+    "kconfig_soc": "SOC_NRF52840_QIAA", "console_tx": "P0.6", "console_rx": "P0.8",
 }
 
 
@@ -272,3 +273,98 @@ def test_the_page_is_served():
 
     assert response.status_code == 200
     assert "fw-automation-agent" in response.text
+
+
+# --- Firmware, not just sources --------------------------------------------------
+
+
+from services.zephyr_build import ZephyrBuilder, flashing_instructions  # noqa: E402
+
+requires_toolchain = pytest.mark.skipif(
+    not ZephyrBuilder().available,
+    reason="no Zephyr build toolchain on this machine",
+)
+
+
+def generated_session() -> str:
+    status = start()
+    status = answer(status["session"], complete(status))
+    client.post(f"/api/sessions/{status['session']}/generate")
+    return status["session"]
+
+
+def test_building_before_generating_is_refused():
+    status = start()
+
+    assert client.post(f"/api/sessions/{status['session']}/build").status_code == 409
+
+
+def test_the_host_says_whether_it_can_compile_at_all():
+    body = client.get("/api/build-capability").json()
+
+    assert isinstance(body["can_build"], bool)
+    if not body["can_build"]:
+        assert body["missing"], "a host that cannot build must say what it lacks"
+
+
+def test_a_host_without_a_toolchain_says_so_rather_than_erroring():
+    """503 with the missing pieces, not a 500: the port is fine, the host is not."""
+    if ZephyrBuilder().available:
+        pytest.skip("this machine can build")
+
+    response = client.post(f"/api/sessions/{generated_session()}/build")
+
+    assert response.status_code == 503
+    assert "cannot compile" in str(response.json()["detail"])
+
+
+@requires_toolchain
+def test_the_port_compiles_into_a_flashable_image():
+    body = client.post(f"/api/sessions/{generated_session()}/build").json()
+
+    assert set(body["artifacts"]) == {"zephyr.hex", "zephyr.bin", "zephyr.elf"}
+    assert body["flash_used"] > 0
+    assert body["flash_used"] < body["flash_total"]
+
+
+@requires_toolchain
+def test_the_zip_carries_the_image_and_how_to_flash_it():
+    session_id = generated_session()
+    client.post(f"/api/sessions/{session_id}/build")
+
+    archive = zipfile.ZipFile(io.BytesIO(
+        client.get(f"/api/sessions/{session_id}/download").content
+    ))
+    names = archive.namelist()
+
+    assert "firmware/zephyr.hex" in names
+    assert "firmware/zephyr.bin" in names
+    assert "firmware/FLASHING.md" in names
+    assert archive.read("firmware/zephyr.hex").startswith(b":")
+
+
+@requires_toolchain
+def test_changing_an_answer_discards_the_image():
+    """An image built from superseded answers is the worst thing to hand over."""
+    session_id = generated_session()
+    client.post(f"/api/sessions/{session_id}/build")
+
+    answer(session_id, {"f_cpu_hz": "16000000"})
+
+    assert client.get(f"/api/sessions/{session_id}/download").status_code == 409
+
+
+def test_the_flashing_notes_say_what_a_flash_does_not_prove():
+    from services.zephyr_build import BuildResult
+
+    text = flashing_instructions("board", BuildResult(ok=True, log=""))
+
+    assert "replaces whatever is on the part" in text
+    assert "says nothing about whether the pins in it match the board" in text
+
+
+def test_nothing_here_flashes_on_the_user_behalf():
+    """Flashing needs a physical connection a server cannot confirm."""
+    routes = {getattr(r, "path", "") for r in app.routes}
+
+    assert not any("flash" in route for route in routes)

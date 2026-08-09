@@ -202,22 +202,50 @@ def _implied(soc: SocProfile) -> list[str]:
     return list(implied_peripherals(soc.vendor))
 
 
-def _console_pinctrl(soc: SocProfile) -> str:
-    """The &pinctrl block for the console UART, or a comment saying why not."""
-    from codegen.zephyr.pinctrl import PinctrlUnsupported, UartPins, uart_pinctrl
+def _console_pinctrl(soc: SocProfile) -> tuple[str, bool]:
+    """The &pinctrl block for the console UART, and whether the UART can use it.
 
-    pins = UartPins(soc.console_tx, soc.console_rx) if soc.console_tx and soc.console_rx else None
+    Returns the block and a flag, because the two have to move together.
+    Emitting `pinctrl-0 = <&uart0_default>` without the block it names gives
+    `undefined node label 'uart0_default'` from the devicetree compiler, which
+    is a long way from what actually happened: nobody said which pad the
+    console is on.
+    """
+    from codegen.zephyr.pinctrl import (
+        DIALECTS,
+        PinctrlUnsupported,
+        UartPins,
+        uart_pinctrl,
+    )
+
+    has_pins = bool(soc.console_tx and soc.console_rx)
+
+    if soc.vendor.lower() in DIALECTS and not has_pins:
+        raise BoardPortError(
+            f"the console UART pads were not given. On {soc.vendor} the UART is "
+            f"muxed onto specific pins, and which pads those are is a property "
+            f"of the board -- there is no default, and a wrong one gives a "
+            f"board that boots and prints into a pin nobody connected. Set "
+            f"console_tx and console_rx (for example P0.6 and P0.8)."
+        )
+
     try:
-        return uart_pinctrl(soc.vendor, soc.uart_label, pins)
+        block = uart_pinctrl(
+            soc.vendor, soc.uart_label, UartPins(soc.console_tx, soc.console_rx)
+        )
+        return block, True
     except PinctrlUnsupported as exc:
+        # An unknown vendor: emit neither the block nor a reference to it, and
+        # say what has to be written by hand.
         return (
             "/* No pin control was generated for the console UART.\n"
             " *\n"
             f" * {exc}\n"
             " *\n"
-            " * The board will not build until a &pinctrl block exists for it.\n"
+            " * Add a &pinctrl block for it, and the matching pinctrl-0 and\n"
+            " * pinctrl-1 properties on the UART node below.\n"
             " */"
-        )
+        ), False
 
 
 class ZephyrBoardPort:
@@ -382,6 +410,8 @@ class ZephyrBoardPort:
         nodes = self.plan(analysis, answers)
         board = _label(board_name)
 
+        pinctrl_block, has_pinctrl = _console_pinctrl(soc)
+
         env = Environment(
             loader=FileSystemLoader(TEMPLATES),
             undefined=StrictUndefined,
@@ -405,7 +435,8 @@ class ZephyrBoardPort:
             "binding_source": self._catalog.source,
             "gpio_controllers": _gpio_controllers(nodes, soc),
             "implied_peripherals": _implied(soc),
-            "console_pinctrl": _console_pinctrl(soc),
+            "console_pinctrl": pinctrl_block,
+            "console_has_pinctrl": has_pinctrl,
             "gpio_spec": lambda pin, flags: _gpio_spec(pin, soc, flags),
             "gpio_flags": lambda prop: GPIO_PROPERTY_FLAGS.get(prop, "GPIO_ACTIVE_HIGH"),
             "pin_of": lambda node: self._pin_for(node, analysis, answers),

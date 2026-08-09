@@ -53,6 +53,7 @@ from agents.schemas import HardwareDraft, SensorDraft
 from codegen.zephyr.binding_fetch import BindingFetcher
 from codegen.zephyr.board_port import BoardPortError, SocProfile, ZephyrBoardPort
 from core.hardware_model import MCU, InterfaceType, PCBAnalysis, Sensor
+from services.zephyr_build import BuildUnavailable, ZephyrBuilder, flashing_instructions
 from webapp import store
 
 STATIC = Path(__file__).parent / "static"
@@ -85,6 +86,12 @@ class Session:
     soc: SocProfile | None = None
     created: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     generated: dict[str, str] | None = None
+    binaries: dict[str, bytes] = field(default_factory=dict)
+    """Flashable images, once compiled. Cleared whenever an answer changes:
+    an image built from superseded answers is the most dangerous artifact this
+    system could hand anybody."""
+    build_log: str = ""
+    build_ok: bool | None = None
 
 
 SESSIONS: dict[str, Session] = {}
@@ -330,6 +337,17 @@ def _analysis(session: Session) -> PCBAnalysis:
     )
 
 
+def _board_id(session: Session) -> str:
+    return "".join(c if c.isalnum() else "_" for c in session.board_name.lower()).strip("_")
+
+
+def _last_build(session: Session):
+    from services.zephyr_build import BuildResult
+
+    return BuildResult(ok=bool(session.build_ok), log=session.build_log,
+                       artifacts=session.binaries, board=_board_id(session))
+
+
 def _provenance(session: Session, files: dict[str, str]) -> str:
     """The file the recipient should read before trusting any of this."""
     blocking, _ = _questions(session)
@@ -456,6 +474,8 @@ def answer(session_id: str, request: AnswerRequest) -> StatusOut:
     accepted = {k: str(v).strip() for k, v in request.answers.items() if str(v).strip()}
     session.answers.update(accepted)
     session.generated = None
+    session.binaries = {}
+    session.build_ok = None
 
     status = _status(session)
     _persist(session)
@@ -516,6 +536,71 @@ def generate(session_id: str) -> dict:
     return {"session": session.id, "files": sorted(files), "count": len(files)}
 
 
+@app.post("/api/sessions/{session_id}/build")
+def build(session_id: str) -> dict:
+    """Compile the port into a flashable image, or say what is missing.
+
+    This is the only step here that produces a fact rather than a claim: the
+    compiler either accepted it or it did not. That makes it the supervision
+    signal the corpus exists to collect.
+    """
+    session = _session(session_id)
+    if session.generated is None:
+        raise HTTPException(409, "generate the port before building it")
+
+    builder = ZephyrBuilder()
+    board = _board_id(session)
+
+    try:
+        result = builder.build(session.generated, board)
+    except BuildUnavailable as exc:
+        # Not a 500: the port is fine, this host just cannot compile. Told
+        # plainly so the user builds locally rather than assuming a defect.
+        raise HTTPException(503, {
+            "error": "this instance cannot compile firmware",
+            "detail": str(exc).splitlines(),
+        }) from exc
+
+    session.build_ok = result.ok
+    session.build_log = result.log
+    session.binaries = dict(result.artifacts) if result.ok else {}
+
+    store.record(
+        "built", session.id, board=board, build="ok" if result.ok else "failed",
+        soc=session.soc.dtsi_include if session.soc else "",
+        parts=[s.name for s in session.draft.sensors],
+        flash_used=result.flash_used, ram_used=result.ram_used,
+        # The tail is what a failure is diagnosed from; the whole log would
+        # bloat the corpus without adding to it.
+        error=("" if result.ok else result.log[-2000:]),
+    )
+
+    if not result.ok:
+        raise HTTPException(422, {
+            "error": "the port did not compile",
+            "detail": result.log.strip().splitlines()[-40:],
+        })
+
+    return {
+        "session": session.id,
+        "board": board,
+        "summary": result.summary,
+        "artifacts": sorted(result.artifacts),
+        "flash_used": result.flash_used,
+        "flash_total": result.flash_total,
+        "ram_used": result.ram_used,
+        "ram_total": result.ram_total,
+    }
+
+
+@app.get("/api/build-capability")
+def build_capability() -> dict:
+    """Whether this host can compile, and exactly what it lacks if not."""
+    builder = ZephyrBuilder()
+    gaps = builder.missing()
+    return {"can_build": not gaps, "missing": gaps}
+
+
 @app.get("/api/sessions/{session_id}/download")
 def download(session_id: str) -> StreamingResponse:
     session = _session(session_id)
@@ -526,6 +611,19 @@ def download(session_id: str) -> StreamingResponse:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in sorted(session.generated.items()):
             archive.writestr(name, content)
+
+        # The images go at the top of the archive, because they are what the
+        # person opening it is after.
+        for name, blob in sorted(session.binaries.items()):
+            archive.writestr(f"firmware/{name}", blob)
+
+        if session.binaries:
+            archive.writestr(
+                "firmware/FLASHING.md",
+                flashing_instructions(_board_id(session), _last_build(session)),
+            )
+        if session.build_log:
+            archive.writestr("firmware/build.log", session.build_log)
     buffer.seek(0)
 
     stem = "".join(c if c.isalnum() else "_" for c in session.board_name).strip("_")

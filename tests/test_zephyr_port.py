@@ -33,6 +33,11 @@ from services.zephyr_verifier import ZephyrBindingVerifier
 SOC = SocProfile(
     name="nrf52840", arch="arm", dtsi_include="nordic/nrf52840_qiaa.dtsi",
     vendor="acme", uart_label="uart0", i2c_label="i2c0", gpio_label="gpio0",
+    kconfig_soc="SOC_NRF52840_QIAA",
+    # Which pads the console sits on is a board fact with no default. Generation
+    # refuses without them on a vendor that needs pin muxing -- see
+    # test_a_vendor_needing_pinctrl_refuses_without_the_console_pads.
+    console_tx="P0.6", console_rx="P0.8",
 )
 
 DHT_BINDING = '''
@@ -242,9 +247,18 @@ def test_the_devicetree_is_structurally_balanced():
     assert "/dts-v1/;" in text
 
 
-def test_every_generated_node_declares_a_compatible():
+def test_every_generated_device_node_declares_a_compatible():
+    """Pin-control states are nodes too, and correctly carry no compatible.
+
+    They name a pin configuration rather than a device, so they are excluded
+    here instead of the assertion being weakened to accommodate them.
+    """
     text = dts(dht(), button(), gps())
-    nodes = re.findall(r"^\t(\w+): \w+[^\n]*\{$", text, re.MULTILINE)
+    nodes = [
+        label
+        for label in re.findall(r"^\t(\w+): \w+[^\n]*\{$", text, re.MULTILINE)
+        if not label.endswith(("_default", "_sleep"))
+    ]
 
     assert nodes
     assert text.count("compatible = ") >= len(nodes)
@@ -475,3 +489,47 @@ def test_both_pins_reach_the_devicetree_with_the_right_flags():
 
     assert "trigger-gpios = <&gpio0 20 GPIO_ACTIVE_HIGH>;" in text
     assert "echo-gpios = <&gpio0 21 GPIO_ACTIVE_HIGH>;" in text
+
+
+# --- Pin control ------------------------------------------------------------------
+
+
+def test_a_vendor_needing_pinctrl_refuses_without_the_console_pads():
+    """Emitting half of it produces `undefined node label 'uart0_default'`.
+
+    That message is a long way from "nobody said which pad the console is on",
+    which is what actually happened.
+    """
+    from dataclasses import replace
+
+    soc = replace(SOC, console_tx="", console_rx="")
+
+    with pytest.raises(BoardPortError, match="console UART pads were not given"):
+        ZephyrBoardPort().generate(analysis(dht()), soc, "Acme Node")
+
+
+def test_the_pinctrl_block_and_its_references_are_emitted_together():
+    text = dts(dht())
+
+    assert "uart0_default: uart0_default" in text
+    assert "pinctrl-0 = <&uart0_default>;" in text
+
+
+def test_an_unknown_vendor_emits_neither_the_block_nor_a_reference_to_it():
+    """Better to build without a console than to fail on a dangling label."""
+    from dataclasses import replace
+
+    soc = replace(SOC, vendor="somebody-else", console_tx="", console_rx="")
+    files = ZephyrBoardPort().generate(analysis(dht()), soc, "Acme Node")
+    text = files["boards/somebody-else/acme_node/acme_node.dts"]
+
+    # The property assignment, not the word: the explanatory comment mentions
+    # pinctrl-0 on purpose, telling the reader what to add.
+    assert "pinctrl-0 = <&" not in text
+    assert "No pin control was generated" in text
+    assert "Add a &pinctrl block" in text
+
+
+def test_the_console_pads_reach_the_pin_mux():
+    assert "NRF_PSEL(UART_TX, 0, 6)" in dts(dht())
+    assert "NRF_PSEL(UART_RX, 0, 8)" in dts(dht())

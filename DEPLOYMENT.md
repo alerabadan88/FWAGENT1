@@ -90,6 +90,29 @@ docker run -p 8000:8000 \
 On Render, `render.yaml` declares a 1 GB disk at `/data`. The free tier spins
 down when idle; the disk survives that.
 
+## Compiling on the server
+
+`POST /api/sessions/{id}/build` runs `west build` and puts `zephyr.hex`,
+`zephyr.bin` and `zephyr.elf` in the zip. That needs more than the devicetree
+subset:
+
+| | Size |
+|---|---|
+| `dts/` sparse checkout | 23 MB |
+| Zephyr SDK, arm-zephyr-eabi only | ~1 GB |
+| west, cmake, ninja | from PyPI, no admin needed |
+
+`/api/build-capability` reports whether a host can compile and lists exactly
+what it lacks. An instance without the toolchain still generates the port and
+says so in the UI — the user builds locally. Nothing is silently degraded.
+
+The `Dockerfile` ships the devicetree subset but **not** the SDK, because a
+1 GB layer is a decision to make deliberately. To build server-side, add:
+
+```dockerfile
+RUN pip install west && west sdk install --toolchains arm-zephyr-eabi
+```
+
 ## Optional: the free-text step
 
 `POST /api/describe` is the only endpoint that uses a model. Set

@@ -349,11 +349,13 @@ async function generate() {
       <div class="banner ok"><b>${out.count} files generated</b>
         None of them has been built here. Read <code>PROVENANCE.md</code> before trusting any of it.</div>
       <ul>${out.files.map(f => `<li><code>${escape(f)}</code></li>`).join("")}</ul>
-      <div style="margin-top:16px">
-        <button type="button" onclick="location.href='/api/sessions/${sessionId}/download'">
-          Download .zip
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" onclick="buildFirmware()">Compile firmware</button>
+        <button class="ghost" type="button" onclick="location.href='/api/sessions/${sessionId}/download'">
+          Download .zip (sources only)
         </button>
-      </div>`;
+      </div>
+      <div id="buildResult"></div>`;
     loadHistory(); loadCorpus();
   } catch (err) {
     const detail = err.detail || err;
@@ -363,6 +365,32 @@ async function generate() {
   }
   result.classList.remove("hidden");
   result.scrollIntoView({ behavior: "smooth" });
+}
+
+async function buildFirmware() {
+  const out = document.getElementById("buildResult");
+  out.innerHTML = `<div class="banner">Compiling. A first build takes a minute or two.</div>`;
+  try {
+    const b = await api(`/api/sessions/${sessionId}/build`, { method: "POST" });
+    out.innerHTML = `
+      <div class="banner ok"><b>Compiled — ${escape(b.summary)}</b>
+        <code>${b.artifacts.map(escape).join("</code>, <code>")}</code> are in the zip
+        under <code>firmware/</code>, with <code>FLASHING.md</code>.</div>
+      <div class="banner warn"><b>The build says the devicetree is consistent. It says nothing about your wiring.</b>
+        If a sensor was declared on the wrong pin this firmware runs, reports no fault, and reads
+        a floating input. <code>PROVENANCE.md</code> lists exactly which values came from your
+        answers rather than from an artifact — those are the ones to check first.</div>
+      <button type="button" onclick="location.href='/api/sessions/${sessionId}/download'">
+        Download .zip with firmware
+      </button>`;
+    loadCorpus();
+  } catch (err) {
+    const detail = err.detail || err;
+    out.innerHTML = `<div class="banner stop"><b>${escape(err.error || "Build failed")}</b>
+      <pre style="white-space:pre-wrap;font-size:12px;margin:8px 0 0">${
+        (Array.isArray(detail) ? detail : [String(detail)]).map(escape).join("
+")}</pre></div>`;
+  }
 }
 
 async function describeBoard() {
@@ -446,6 +474,12 @@ async function checkEnvironment() {
     const notes = [];
     if (h.storage && !h.storage.persistent) {
       notes.push(`<b>Nothing is being saved</b>${escape(h.storage.note)}`);
+    }
+    const cap = await api("/api/build-capability").catch(() => ({ can_build: true }));
+    if (!cap.can_build) {
+      notes.push(`<b>This instance cannot compile firmware</b>
+        You will get the board port sources and build them yourself. Missing:
+        <ul>${(cap.missing || []).map(m => `<li>${escape(m)}</li>`).join("")}</ul>`);
     }
     if (!h.zephyr_checkout) {
       notes.push(`<b>No Zephyr checkout on this host</b>

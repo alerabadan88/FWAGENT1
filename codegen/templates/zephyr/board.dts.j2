@@ -91,9 +91,11 @@
 &{{ soc.uart_label }} {
 	status = "okay";
 	current-speed = <{{ uart_baud | default(115200) }}>;
+{% if console_has_pinctrl %}
 	pinctrl-0 = <&{{ soc.uart_label }}_default>;
 	pinctrl-1 = <&{{ soc.uart_label }}_sleep>;
 	pinctrl-names = "default", "sleep";
+{% endif %}
 };
 
 {% if i2c_nodes %}
