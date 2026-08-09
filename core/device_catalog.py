@@ -244,6 +244,51 @@ _PROBE = "#include <avr/io.h>\n" + "".join(
 
 
 @lru_cache(maxsize=256)
+def _defined_symbols_cached(part: str, gcc_path: str | None = None) -> frozenset[str]:
+    """Every macro avr-libc defines for a part, straight from the preprocessor.
+
+    Exposed because it is the ground truth a claim about a register can be
+    checked against: if TWCR is not in here, the part has no TWI, and no amount
+    of confidence about it changes that.
+    """
+    import subprocess
+    import tempfile
+
+    if gcc_path is None:
+        from services.toolchain import AvrToolchain
+
+        gcc_path = str(AvrToolchain().gcc_path)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = Path(tmp) / "probe.c"
+        probe.write_text("", encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [gcc_path, f"-mmcu={part}", "-dM", "-E", "-include", "avr/io.h", str(probe)],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DeviceNotFoundError(f"could not query avr-gcc about '{part}': {exc}") from exc
+
+    if result.returncode != 0:
+        last = result.stderr.strip().splitlines()
+        raise DeviceNotFoundError(
+            f"avr-gcc rejected part '{part}': {last[-1] if last else 'unknown error'}"
+        )
+
+    return frozenset(
+        match.group(1)
+        for line in result.stdout.splitlines()
+        if (match := re.match(r"#define\s+(\w+)", line))
+    )
+
+
+def defined_symbols(part: str, gcc_path: str | None = None) -> frozenset[str]:
+    """Every macro avr-libc defines for a part. Cached; see the helper above."""
+    return _defined_symbols_cached(part, gcc_path)
+
+
+@lru_cache(maxsize=256)
 def _facts_for(gcc_path: str, part: str) -> DeviceFacts:
     """Cached because each lookup costs two compiler invocations."""
     import subprocess
