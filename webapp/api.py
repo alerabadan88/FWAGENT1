@@ -52,6 +52,7 @@ from agents.schemas import HardwareDraft, SensorDraft
 from codegen.zephyr.binding_fetch import BindingFetcher
 from codegen.zephyr.board_port import BoardPortError, SocProfile, ZephyrBoardPort
 from core.hardware_model import MCU, InterfaceType, PCBAnalysis, Sensor
+from webapp import store
 
 STATIC = Path(__file__).parent / "static"
 
@@ -108,6 +109,13 @@ class StartRequest(BaseModel):
     )
     vendor: str = Field(default="custom")
     arch: str = Field(default="arm")
+    kconfig_soc: str = Field(
+        default="",
+        description="Kconfig symbol the board selects -- the SoC *variant*, "
+                    "e.g. SOC_NRF52840_QIAA, not the die",
+    )
+    console_tx: str = Field(default="", description="Console UART TX pad, e.g. P0.6")
+    console_rx: str = Field(default="", description="Console UART RX pad, e.g. P0.8")
     sensors: list[SensorIn] = Field(default_factory=list)
     description: str = Field(default="", description="Free text, if a model is available")
 
@@ -146,7 +154,68 @@ class AnswerRequest(BaseModel):
 def _session(session_id: str) -> Session:
     session = SESSIONS.get(session_id)
     if session is None:
+        session = _restore(session_id)
+    if session is None:
         raise HTTPException(404, f"no session '{session_id}'")
+    return session
+
+
+def _persist(session: Session) -> None:
+    store.save_session(session.id, {
+        "board_name": session.board_name,
+        "mcu": session.draft.mcu_name,
+        "soc": session.soc.dtsi_include if session.soc else "",
+        "vendor": session.soc.vendor if session.soc else "",
+        "arch": session.soc.arch if session.soc else "",
+        "kconfig_soc": session.soc.kconfig_soc if session.soc else "",
+        "console_tx": session.soc.console_tx if session.soc else "",
+        "console_rx": session.soc.console_rx if session.soc else "",
+        "sensors": [
+            {"name": s.name, "type": s.type, "interface": s.interface,
+             "address": s.address, "pins": s.pins or {}}
+            for s in session.draft.sensors
+        ],
+        "answers": session.answers,
+        "generated_files": sorted(session.generated) if session.generated else [],
+    })
+
+
+def _restore(session_id: str) -> Session | None:
+    """Rebuild a session from disk so a closed tab does not lose an interview.
+
+    The generated files are deliberately not restored: they were produced from
+    a particular set of answers, and handing back a zip without re-deriving it
+    risks shipping a port built from answers that have since changed.
+    """
+    body = store.load_session(session_id)
+    if body is None:
+        return None
+
+    draft = HardwareDraft(
+        mcu_name=body.get("mcu"), mcu_family=body.get("arch", "").upper() or None,
+        board_name=body.get("board_name"),
+        sensors=[
+            SensorDraft(
+                name=s["name"], type=s.get("type") or "unspecified",
+                interface=s["interface"], address=s.get("address"),
+                pins=s.get("pins") or None,
+                bus="I2C1" if str(s["interface"]).upper() == "I2C" else None,
+            )
+            for s in body.get("sensors", [])
+        ],
+    )
+    session = Session(
+        id=session_id, draft=draft, answers=dict(body.get("answers") or {}),
+        board_name=body.get("board_name") or "Custom Board",
+        soc=SocProfile(
+            name=(body.get("mcu") or "").lower(), arch=body.get("arch") or "arm",
+            dtsi_include=body.get("soc") or "", vendor=body.get("vendor") or "custom",
+            kconfig_soc=body.get("kconfig_soc") or "",
+            console_tx=body.get("console_tx") or "",
+            console_rx=body.get("console_rx") or "",
+        ),
+    )
+    SESSIONS[session_id] = session
     return session
 
 
@@ -351,10 +420,22 @@ def start(request: StartRequest) -> StatusOut:
             arch=request.arch.lower(),
             dtsi_include=request.soc_dtsi.strip(),
             vendor=request.vendor.strip().lower() or "custom",
+            kconfig_soc=request.kconfig_soc.strip(),
+            console_tx=request.console_tx.strip(),
+            console_rx=request.console_rx.strip(),
         ),
     )
     SESSIONS[session.id] = session
-    return _status(session)
+    status = _status(session)
+    _persist(session)
+    store.record(
+        "started", session.id,
+        board_name=session.board_name, mcu=request.mcu, soc=request.soc_dtsi,
+        parts=[s.name for s in request.sensors],
+        asked=[q.field for q in status.blocking + status.advisory],
+        refusals=status.refusals, conflicts=status.conflicts,
+    )
+    return status
 
 
 @app.get("/api/sessions/{session_id}", response_model=StatusOut)
@@ -365,11 +446,23 @@ def status(session_id: str) -> StatusOut:
 @app.post("/api/sessions/{session_id}/answers", response_model=StatusOut)
 def answer(session_id: str, request: AnswerRequest) -> StatusOut:
     session = _session(session_id)
-    for key, value in request.answers.items():
-        if str(value).strip():
-            session.answers[key] = str(value).strip()
+    # Captured before applying, so the corpus can tell an accepted default from
+    # an overridden one -- which is the only learnable signal in this data.
+    defaults = {
+        q.field: q.default
+        for q in _questions(session)[1] if q.default is not None
+    }
+    accepted = {k: str(v).strip() for k, v in request.answers.items() if str(v).strip()}
+    session.answers.update(accepted)
     session.generated = None
-    return _status(session)
+
+    status = _status(session)
+    _persist(session)
+    store.record(
+        "answer", session.id, answers=accepted, defaults=defaults,
+        remaining=[q.field for q in status.blocking],
+    )
+    return status
 
 
 @app.post("/api/sessions/{session_id}/generate")
@@ -409,6 +502,16 @@ def generate(session_id: str) -> dict:
 
     files["PROVENANCE.md"] = _provenance(session, files)
     session.generated = files
+    _persist(session)
+    store.record(
+        "generated", session.id, board_name=session.board_name,
+        soc=dtsi, parts=[s.name for s in session.draft.sensors],
+        files=sorted(files), answers=dict(session.answers),
+        # Whether it builds is not known here: generating is not compiling.
+        # Recorded as unknown so a later `west build` can fill it in rather
+        # than the corpus quietly implying success.
+        build="unknown",
+    )
     return {"session": session.id, "files": sorted(files), "count": len(files)}
 
 
@@ -432,6 +535,81 @@ def download(session_id: str) -> StreamingResponse:
     )
 
 
+class DescribeRequest(BaseModel):
+    text: str = Field(description="Free prose about the board")
+
+
+@app.post("/api/describe")
+def describe(request: DescribeRequest) -> dict:
+    """Read prose into a draft, using a model.
+
+    This is the only endpoint that needs a model, and it is doing the one job a
+    model is reliably good at here: turning messy prose into structure. Nothing
+    it returns is trusted -- the draft goes through the same deterministic
+    uncertainty scan as a hand-filled form, so a hallucinated sensor produces
+    questions rather than firmware.
+
+    Without a credential this returns 503 rather than degrading quietly. The
+    form path needs no model at all and is the supported way to work offline.
+    """
+    if not request.text.strip():
+        raise HTTPException(422, "nothing to read")
+
+    try:
+        from agents.extractor import ExtractionError, HardwareExtractor
+    except ImportError as exc:
+        raise HTTPException(503, {
+            "error": "the interview agent is not installed",
+            "detail": ['pip install "fw-automation-agent[agent]"'],
+        }) from exc
+
+    try:
+        extractor = HardwareExtractor()
+        result = extractor.extract(request.text)
+    except Exception as exc:  # noqa: BLE001 - surfaced verbatim, never swallowed
+        raise HTTPException(503, {
+            "error": "could not read that with a model",
+            "detail": [
+                str(exc),
+                "The form below needs no model and produces the same questions.",
+            ],
+        }) from exc
+
+    hardware = result.hardware
+    store.record("described", "-", parts=[s.name for s in hardware.sensors],
+                 mcu=hardware.mcu_name or "", chars=len(request.text))
+
+    return {
+        "mcu": hardware.mcu_name or "",
+        "board_name": hardware.board_name or "",
+        "sensors": [
+            {"name": s.name, "type": s.type, "interface": s.interface,
+             "address": s.address, "pins": s.pins or {},
+             "confidence": s.confidence.value}
+            for s in hardware.sensors
+        ],
+        "assumptions": result.assumptions,
+        "unsupported": result.unsupported,
+        "note": (
+            "Read from your text by a model. Nothing here is trusted -- it "
+            "pre-fills the form, and every value still goes through the same "
+            "questions as if you had typed it."
+        ),
+    }
+
+
+@app.get("/api/sessions")
+def sessions() -> dict:
+    """Every board worked on, so a session can be picked up later."""
+    return {"sessions": store.list_sessions()}
+
+
+@app.get("/api/corpus")
+def corpus() -> dict:
+    """What the collected interactions support saying. Counts, not inferences."""
+    return store.corpus_stats()
+
+
 @app.get("/api/health")
 def health() -> dict:
     from codegen.zephyr.bindings import BindingCatalog
@@ -441,7 +619,9 @@ def health() -> dict:
         "status": "ok",
         "zephyr_bindings": len(catalog),
         "zephyr_ref": catalog.ref,
-        "sessions": len(SESSIONS),
+        "sessions_in_memory": len(SESSIONS),
+        "sessions_stored": len(store.list_sessions(limit=10_000)),
+        "data_dir": str(store.DATA_DIR),
     }
 
 

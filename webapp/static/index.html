@@ -94,6 +94,16 @@
 </header>
 
 <main>
+  <section id="describe">
+    <h2>0 · Cuéntalo con tus palabras <span style="text-transform:none;font-weight:400">(opcional, necesita modelo)</span></h2>
+    <textarea id="prose" rows="3" placeholder="Placa propia con un nRF52840. Lleva un DHT22, un botón y un GPS NEO-6M..."></textarea>
+    <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="ghost" type="button" onclick="describe()">Leer y rellenar el formulario</button>
+      <span class="why" id="proseNote">Sin modelo configurado, rellena el formulario a mano: salen exactamente las mismas preguntas.</span>
+    </div>
+    <div id="proseResult"></div>
+  </section>
+
   <section id="setup">
     <h2>1 · La placa</h2>
     <div class="row">
@@ -116,6 +126,20 @@
         <input id="vendor" value="acme">
       </div>
     </div>
+    <div class="row">
+      <div>
+        <label for="kconfig">Símbolo Kconfig del SoC (la <em>variante</em>, no el die)</label>
+        <input id="kconfig" value="SOC_NRF52840_QIAA">
+      </div>
+      <div>
+        <label for="ctx">Consola UART TX</label>
+        <input id="ctx" value="P0.6">
+      </div>
+      <div>
+        <label for="crx">Consola UART RX</label>
+        <input id="crx" value="P0.8">
+      </div>
+    </div>
 
     <h2 style="margin-top:24px">2 · Qué hay conectado</h2>
     <div id="sensors"></div>
@@ -135,6 +159,16 @@
   <section id="result" class="hidden">
     <h2>4 · Resultado</h2>
     <div id="resultBody"></div>
+  </section>
+
+  <section id="history">
+    <h2>Placas anteriores</h2>
+    <div id="historyBody"><span class="why">cargando…</span></div>
+  </section>
+
+  <section id="corpus">
+    <h2>Lo que se está aprendiendo</h2>
+    <div id="corpusBody"><span class="why">cargando…</span></div>
   </section>
 </main>
 
@@ -212,6 +246,9 @@ async function start() {
         mcu: document.getElementById("mcu").value,
         soc_dtsi: document.getElementById("dtsi").value,
         vendor: document.getElementById("vendor").value,
+        kconfig_soc: document.getElementById("kconfig").value,
+        console_tx: document.getElementById("ctx").value,
+        console_rx: document.getElementById("crx").value,
         arch: "arm",
         sensors: collectSensors(),
       }),
@@ -315,6 +352,7 @@ async function generate() {
           Descargar .zip
         </button>
       </div>`;
+    loadHistory(); loadCorpus();
   } catch (err) {
     const detail = err.detail || err;
     body.innerHTML = `<div class="banner stop"><b>${escape(err.error || "No se pudo generar")}</b>
@@ -325,9 +363,82 @@ async function generate() {
   result.scrollIntoView({ behavior: "smooth" });
 }
 
+async function describe() {
+  const note = document.getElementById("proseResult");
+  const text = document.getElementById("prose").value.trim();
+  if (!text) return;
+  note.innerHTML = `<div class="banner">Leyendo…</div>`;
+  try {
+    const out = await api("/api/describe", { method: "POST", body: JSON.stringify({ text }) });
+    if (out.mcu) document.getElementById("mcu").value = out.mcu;
+    if (out.board_name) document.getElementById("board").value = out.board_name;
+    document.getElementById("sensors").innerHTML = "";
+    out.sensors.forEach(s => addSensor({
+      name: s.name, type: s.type, interface: s.interface, address: s.address,
+      pins: Object.entries(s.pins || {}).map(([r, p]) => `${r}=${p}`).join(", "),
+    }));
+    note.innerHTML = `<div class="banner warn"><b>Leído por un modelo — nada de esto está dado por bueno</b>
+      ${escape(out.note)}
+      ${out.assumptions.length ? `<ul>${out.assumptions.map(a => `<li>${escape(a)}</li>`).join("")}</ul>` : ""}
+      ${out.unsupported.length ? `<b>No soportado:</b><ul>${out.unsupported.map(u => `<li>${escape(u)}</li>`).join("")}</ul>` : ""}
+    </div>`;
+  } catch (err) {
+    const detail = err.detail || err;
+    note.innerHTML = `<div class="banner stop"><b>${escape(err.error || "No se pudo leer")}</b>
+      ${(Array.isArray(detail) ? detail : [String(detail)]).map(d => `<div>${escape(d)}</div>`).join("")}</div>`;
+  }
+}
+
+async function loadHistory() {
+  try {
+    const out = await api("/api/sessions");
+    const body = document.getElementById("historyBody");
+    if (!out.sessions.length) {
+      body.innerHTML = `<span class="why">Ninguna todavía. Cada placa que empieces se guarda y se puede retomar.</span>`;
+      return;
+    }
+    body.innerHTML = `<ul>${out.sessions.map(s => `<li>
+      <code>${escape(s.session)}</code> — ${escape(s.board_name)} · ${escape(s.mcu)} ·
+      ${s.sensors} componente(s) · ${s.answered} respuesta(s)
+      ${s.generated ? " · <b>generado</b>" : ""}
+      <button class="ghost" style="padding:2px 8px;font-size:12px;margin-left:6px"
+              type="button" onclick="resume('${s.session}')">retomar</button>
+    </li>`).join("")}</ul>`;
+  } catch { /* el historial no debe romper la página */ }
+}
+
+async function resume(id) {
+  sessionId = id;
+  render(await api(`/api/sessions/${id}`));
+  document.getElementById("questions").scrollIntoView({ behavior: "smooth" });
+}
+
+async function loadCorpus() {
+  try {
+    const c = await api("/api/corpus");
+    const body = document.getElementById("corpusBody");
+    if (!c.records) { body.innerHTML = `<span class="why">${escape(c.note)}</span>`; return; }
+    const rows = [];
+    if (c.defaults_overridden && c.defaults_overridden.length) {
+      rows.push(`<div class="banner warn"><b>Defaults que se corrigen más de lo que se aceptan</b>
+        <ul>${c.defaults_overridden.map(d =>
+          `<li><code>${escape(d.field)}</code> — corregido ${d.overridden}, aceptado ${d.accepted}</li>`).join("")}</ul></div>`);
+    }
+    rows.push(`<ul>
+      <li>${c.records} eventos en ${c.sessions} sesión(es), ${c.boards_generated} port(s) generados</li>
+      ${c.parts_seen.length ? `<li>piezas: ${c.parts_seen.map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
+      ${c.socs_seen.length ? `<li>SoCs: ${c.socs_seen.map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
+      ${c.questions_asked.length ? `<li>preguntas más frecuentes: ${c.questions_asked.slice(0, 6).map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
+    </ul><span class="why">${escape(c.note)}</span>`);
+    body.innerHTML = rows.join("");
+  } catch { /* idem */ }
+}
+
 addSensor({ name: "DHT22", type: "temperature_humidity", interface: "GPIO", pins: "pin=P0.13" });
 addSensor({ name: "Button", type: "user_input", interface: "GPIO", pins: "pin=P0.11" });
 addSensor({ name: "NEO-6M", type: "gnss", interface: "UART" });
+loadHistory();
+loadCorpus();
 </script>
 </body>
 </html>

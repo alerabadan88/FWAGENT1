@@ -9,3 +9,6 @@ dist/
 out-uno/
 out/
 out-zephyr/
+
+# datos locales del webapp
+.fw-automation-agent/
