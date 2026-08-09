@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,6 +35,7 @@
   }
   h2 { font-size: 14px; margin: 0 0 14px; text-transform: uppercase;
        letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
+  h2 .plain { text-transform: none; font-weight: 400; letter-spacing: 0; }
   label { display: block; font-size: 13px; color: var(--dim); margin: 12px 0 5px; }
   input, select, textarea {
     width: 100%; padding: 9px 11px; border-radius: 7px; font: inherit;
@@ -60,9 +61,7 @@
     position: absolute; top: 10px; right: 10px; padding: 3px 9px; font-size: 12px;
     background: transparent; border-color: var(--line); color: var(--dim);
   }
-  .q {
-    border-left: 3px solid var(--line); padding: 12px 0 12px 16px; margin-bottom: 18px;
-  }
+  .q { border-left: 3px solid var(--line); padding: 12px 0 12px 16px; margin-bottom: 18px; }
   .q.blocking { border-left-color: var(--stop); }
   .q .tag {
     display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .05em;
@@ -71,7 +70,7 @@
   .q.blocking .tag { background: var(--stop); color: #fff; }
   .q.advisory .tag { background: var(--line); color: var(--dim); }
   .q .text { font-weight: 560; margin-bottom: 5px; }
-  .q .why { font-size: 13px; color: var(--dim); margin-bottom: 9px; }
+  .q .why, .why { font-size: 13px; color: var(--dim); margin-bottom: 9px; }
   ul { margin: 0; padding-left: 20px; color: var(--dim); font-size: 13.5px; }
   li { margin-bottom: 6px; }
   .banner {
@@ -90,90 +89,91 @@
 <body>
 <header>
   <h1>fw-automation-agent</h1>
-  <p>Describe la placa. Todo lo que no se pueda derivar, se pregunta. Sale un board port de Zephyr.</p>
+  <p>Describe a board. Anything that cannot be derived gets asked. Out comes a Zephyr board port.</p>
 </header>
 
 <main>
   <section id="describe">
-    <h2>0 · Cuéntalo con tus palabras <span style="text-transform:none;font-weight:400">(opcional, necesita modelo)</span></h2>
-    <textarea id="prose" rows="3" placeholder="Placa propia con un nRF52840. Lleva un DHT22, un botón y un GPS NEO-6M..."></textarea>
+    <h2>0 · Describe it in your own words <span class="plain">(optional, needs a model)</span></h2>
+    <textarea id="prose" rows="3"
+      placeholder="Custom board with an nRF52840. It has a DHT22, a button and a NEO-6M GPS..."></textarea>
     <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="ghost" type="button" onclick="describe()">Leer y rellenar el formulario</button>
-      <span class="why" id="proseNote">Sin modelo configurado, rellena el formulario a mano: salen exactamente las mismas preguntas.</span>
+      <button class="ghost" type="button" onclick="describeBoard()">Read this and fill the form</button>
+      <span class="why">With no model configured, fill the form by hand — you get exactly the same questions.</span>
     </div>
     <div id="proseResult"></div>
   </section>
 
   <section id="setup">
-    <h2>1 · La placa</h2>
+    <h2>1 · The board</h2>
     <div class="row">
       <div>
-        <label for="board">Nombre de la placa</label>
+        <label for="board">Board name</label>
         <input id="board" value="Acme Sensor Node v1">
       </div>
       <div>
-        <label for="mcu">Microcontrolador (número de parte exacto)</label>
+        <label for="mcu">Microcontroller (exact part number)</label>
         <input id="mcu" value="nrf52840" placeholder="nrf52840, stm32f411xe...">
       </div>
     </div>
     <div class="row">
       <div>
-        <label for="dtsi">SoC .dtsi de Zephyr</label>
+        <label for="dtsi">Zephyr SoC .dtsi</label>
         <input id="dtsi" value="nordic/nrf52840_qiaa.dtsi">
       </div>
       <div>
-        <label for="vendor">Fabricante (carpeta boards/)</label>
+        <label for="vendor">Vendor (directory under boards/)</label>
         <input id="vendor" value="acme">
       </div>
     </div>
     <div class="row">
       <div>
-        <label for="kconfig">Símbolo Kconfig del SoC (la <em>variante</em>, no el die)</label>
+        <label for="kconfig">SoC Kconfig symbol — the <em>variant</em>, not the die</label>
         <input id="kconfig" value="SOC_NRF52840_QIAA">
       </div>
       <div>
-        <label for="ctx">Consola UART TX</label>
+        <label for="ctx">Console UART TX pad</label>
         <input id="ctx" value="P0.6">
       </div>
       <div>
-        <label for="crx">Consola UART RX</label>
+        <label for="crx">Console UART RX pad</label>
         <input id="crx" value="P0.8">
       </div>
     </div>
 
-    <h2 style="margin-top:24px">2 · Qué hay conectado</h2>
+    <h2 style="margin-top:24px">2 · What is connected</h2>
     <div id="sensors"></div>
-    <button class="ghost" type="button" onclick="addSensor()">+ Añadir componente</button>
+    <button class="ghost" type="button" onclick="addSensor()">+ Add a component</button>
     <div style="margin-top:18px">
-      <button type="button" onclick="start()">Empezar</button>
+      <button type="button" onclick="start()">Start</button>
     </div>
   </section>
 
   <section id="questions" class="hidden">
-    <h2>3 · Lo que hace falta saber</h2>
+    <h2>3 · What has to be known</h2>
     <div id="banners"></div>
     <div id="qlist"></div>
     <div id="actions" style="margin-top:8px"></div>
   </section>
 
   <section id="result" class="hidden">
-    <h2>4 · Resultado</h2>
+    <h2>4 · Result</h2>
     <div id="resultBody"></div>
   </section>
 
   <section id="history">
-    <h2>Placas anteriores</h2>
-    <div id="historyBody"><span class="why">cargando…</span></div>
+    <h2>Earlier boards</h2>
+    <div id="historyBody"><span class="why">loading…</span></div>
   </section>
 
   <section id="corpus">
-    <h2>Lo que se está aprendiendo</h2>
-    <div id="corpusBody"><span class="why">cargando…</span></div>
+    <h2>What is being learned</h2>
+    <div id="corpusBody"><span class="why">loading…</span></div>
   </section>
 </main>
 
 <footer>
-  Nada de lo que sale de aquí ha sido compilado. Lee <code>PROVENANCE.md</code> dentro del zip.
+  Nothing produced here has been run on hardware. Read <code>PROVENANCE.md</code> inside the zip.
 </footer>
 
 <script>
@@ -189,17 +189,17 @@ function addSensor(preset) {
   div.className = "sensor";
   div.id = "sensor-" + n;
   div.innerHTML = `
-    <button class="rm" type="button" onclick="this.parentElement.remove()">quitar</button>
+    <button class="rm" type="button" onclick="this.parentElement.remove()">remove</button>
     <div class="row">
-      <div><label>Parte</label><input id="s${n}-name" value="${p.name || ""}" placeholder="DHT22"></div>
-      <div><label>Qué mide</label><input id="s${n}-type" value="${p.type || ""}" placeholder="temperature"></div>
-      <div><label>Interfaz</label><select id="s${n}-if">
+      <div><label>Part</label><input id="s${n}-name" value="${p.name || ""}" placeholder="DHT22"></div>
+      <div><label>What it measures</label><input id="s${n}-type" value="${p.type || ""}" placeholder="temperature"></div>
+      <div><label>Interface</label><select id="s${n}-if">
         ${INTERFACES.map(i => `<option ${p.interface === i ? "selected" : ""}>${i}</option>`).join("")}
       </select></div>
     </div>
     <div class="row">
-      <div><label>Dirección I2C (si aplica)</label><input id="s${n}-addr" value="${p.address || ""}" placeholder="0x76"></div>
-      <div><label>Pines (rol=pin, separados por coma)</label><input id="s${n}-pins" value="${p.pins || ""}" placeholder="pin=P0.13  o  trigger=P0.20, echo=P0.21"></div>
+      <div><label>I2C address (if any)</label><input id="s${n}-addr" value="${p.address || ""}" placeholder="0x76"></div>
+      <div><label>Pins (role=pin, comma separated)</label><input id="s${n}-pins" value="${p.pins || ""}" placeholder="pin=P0.13   or   trigger=P0.20, echo=P0.21"></div>
     </div>`;
   document.getElementById("sensors").appendChild(div);
 }
@@ -255,6 +255,7 @@ async function start() {
     });
     sessionId = status.session;
     render(status);
+    loadHistory();
   } catch (err) {
     alert(typeof err === "string" ? err : JSON.stringify(err, null, 2));
   }
@@ -268,19 +269,19 @@ function render(status) {
   banners.innerHTML = "";
 
   if (status.refusals.length) {
-    banners.innerHTML += `<div class="banner stop"><b>No se puede seguir</b>${
+    banners.innerHTML += `<div class="banner stop"><b>Stopping here</b>${
       status.refusals.map(r => `<div>${escape(r)}</div>`).join("")}</div>`;
   }
   if (status.conflicts.length) {
-    banners.innerHTML += `<div class="banner stop"><b>El diseño no cabe en la pieza — ninguna respuesta tuya lo cambia</b>${
+    banners.innerHTML += `<div class="banner stop"><b>This design does not fit the part — no answer of yours changes it</b>${
       status.conflicts.map(c => `<div>${escape(c)}</div>`).join("")}</div>`;
   }
   if (status.blocking.length) {
-    banners.innerHTML += `<div class="banner warn"><b>${status.blocking.length} pregunta(s) sin valor por defecto</b>
-      Una respuesta equivocada aquí no falla de forma visible, así que no hay nada que asumir.</div>`;
+    banners.innerHTML += `<div class="banner warn"><b>${status.blocking.length} question(s) with no default</b>
+      A wrong answer to these does not fail visibly, so there is nothing safe to assume.</div>`;
   }
   if (status.assumptions.length) {
-    banners.innerHTML += `<div class="banner"><b>Se usará esto si no dices otra cosa</b>
+    banners.innerHTML += `<div class="banner"><b>Used unless you say otherwise</b>
       <ul>${status.assumptions.map(a => `<li>${escape(a)}</li>`).join("")}</ul></div>`;
   }
 
@@ -296,7 +297,7 @@ function render(status) {
          </select>`
       : `<input id="a-${cssId(q.field)}" value="${q.default || ""}">`;
     div.innerHTML = `
-      <span class="tag">${q.blocking ? "obligatoria" : "opcional"}</span>
+      <span class="tag">${q.blocking ? "required" : "optional"}</span>
       <div class="text">${escape(q.question)}</div>
       <div class="why">${escape(q.why)}</div>
       ${control}`;
@@ -306,9 +307,9 @@ function render(status) {
   const actions = document.getElementById("actions");
   const blocked = status.refusals.length || status.conflicts.length;
   actions.innerHTML = blocked ? "" : `
-    <button type="button" onclick="submitAnswers()">Responder</button>
+    <button type="button" onclick="submitAnswers()">Submit answers</button>
     <button class="ghost" type="button" onclick="generate()" ${status.ready ? "" : "disabled"}>
-      ${status.ready ? "Generar board port" : "Faltan respuestas obligatorias"}
+      ${status.ready ? "Generate board port" : "Required answers are missing"}
     </button>`;
 }
 
@@ -318,23 +319,22 @@ function escape(s) {
 }
 
 async function submitAnswers() {
-  const answers = {};
+  const raw = {};
   document.querySelectorAll("#qlist .q").forEach(div => {
     const control = div.querySelector("input, select");
     if (!control) return;
-    const field = control.id.slice(2);
     const value = control.value.trim();
-    if (value) answers[field] = value;
+    if (value) raw[control.id.slice(2)] = value;
   });
-  // The id was mangled for CSS, so map it back from the rendered questions.
+  // Ids were mangled to be legal CSS, so map them back from the live status.
   const status = await api(`/api/sessions/${sessionId}`);
   const byId = {};
   [...status.blocking, ...status.advisory].forEach(q => { byId[cssId(q.field)] = q.field; });
-  const mapped = {};
-  Object.entries(answers).forEach(([k, v]) => { if (byId[k]) mapped[byId[k]] = v; });
+  const answers = {};
+  Object.entries(raw).forEach(([k, v]) => { if (byId[k]) answers[byId[k]] = v; });
 
   render(await api(`/api/sessions/${sessionId}/answers`, {
-    method: "POST", body: JSON.stringify({ answers: mapped }),
+    method: "POST", body: JSON.stringify({ answers }),
   }));
 }
 
@@ -344,18 +344,18 @@ async function generate() {
   try {
     const out = await api(`/api/sessions/${sessionId}/generate`, { method: "POST" });
     body.innerHTML = `
-      <div class="banner ok"><b>${out.count} ficheros generados</b>
-        Ninguno ha sido compilado. Lee <code>PROVENANCE.md</code> antes de fiarte de nada.</div>
+      <div class="banner ok"><b>${out.count} files generated</b>
+        None of them has been built here. Read <code>PROVENANCE.md</code> before trusting any of it.</div>
       <ul>${out.files.map(f => `<li><code>${escape(f)}</code></li>`).join("")}</ul>
       <div style="margin-top:16px">
         <button type="button" onclick="location.href='/api/sessions/${sessionId}/download'">
-          Descargar .zip
+          Download .zip
         </button>
       </div>`;
     loadHistory(); loadCorpus();
   } catch (err) {
     const detail = err.detail || err;
-    body.innerHTML = `<div class="banner stop"><b>${escape(err.error || "No se pudo generar")}</b>
+    body.innerHTML = `<div class="banner stop"><b>${escape(err.error || "Could not generate")}</b>
       ${(Array.isArray(detail) ? detail : [JSON.stringify(detail)])
         .map(d => `<div style="white-space:pre-wrap">${escape(d)}</div>`).join("")}</div>`;
   }
@@ -363,11 +363,11 @@ async function generate() {
   result.scrollIntoView({ behavior: "smooth" });
 }
 
-async function describe() {
+async function describeBoard() {
   const note = document.getElementById("proseResult");
   const text = document.getElementById("prose").value.trim();
   if (!text) return;
-  note.innerHTML = `<div class="banner">Leyendo…</div>`;
+  note.innerHTML = `<div class="banner">Reading…</div>`;
   try {
     const out = await api("/api/describe", { method: "POST", body: JSON.stringify({ text }) });
     if (out.mcu) document.getElementById("mcu").value = out.mcu;
@@ -377,14 +377,14 @@ async function describe() {
       name: s.name, type: s.type, interface: s.interface, address: s.address,
       pins: Object.entries(s.pins || {}).map(([r, p]) => `${r}=${p}`).join(", "),
     }));
-    note.innerHTML = `<div class="banner warn"><b>Leído por un modelo — nada de esto está dado por bueno</b>
+    note.innerHTML = `<div class="banner warn"><b>Read by a model — none of it is taken as given</b>
       ${escape(out.note)}
       ${out.assumptions.length ? `<ul>${out.assumptions.map(a => `<li>${escape(a)}</li>`).join("")}</ul>` : ""}
-      ${out.unsupported.length ? `<b>No soportado:</b><ul>${out.unsupported.map(u => `<li>${escape(u)}</li>`).join("")}</ul>` : ""}
+      ${out.unsupported.length ? `<b>Not supported:</b><ul>${out.unsupported.map(u => `<li>${escape(u)}</li>`).join("")}</ul>` : ""}
     </div>`;
   } catch (err) {
     const detail = err.detail || err;
-    note.innerHTML = `<div class="banner stop"><b>${escape(err.error || "No se pudo leer")}</b>
+    note.innerHTML = `<div class="banner stop"><b>${escape(err.error || "Could not read that")}</b>
       ${(Array.isArray(detail) ? detail : [String(detail)]).map(d => `<div>${escape(d)}</div>`).join("")}</div>`;
   }
 }
@@ -394,17 +394,17 @@ async function loadHistory() {
     const out = await api("/api/sessions");
     const body = document.getElementById("historyBody");
     if (!out.sessions.length) {
-      body.innerHTML = `<span class="why">Ninguna todavía. Cada placa que empieces se guarda y se puede retomar.</span>`;
+      body.innerHTML = `<span class="why">None yet. Every board you start is saved and can be picked up again.</span>`;
       return;
     }
     body.innerHTML = `<ul>${out.sessions.map(s => `<li>
       <code>${escape(s.session)}</code> — ${escape(s.board_name)} · ${escape(s.mcu)} ·
-      ${s.sensors} componente(s) · ${s.answered} respuesta(s)
-      ${s.generated ? " · <b>generado</b>" : ""}
+      ${s.sensors} component(s) · ${s.answered} answer(s)
+      ${s.generated ? " · <b>generated</b>" : ""}
       <button class="ghost" style="padding:2px 8px;font-size:12px;margin-left:6px"
-              type="button" onclick="resume('${s.session}')">retomar</button>
+              type="button" onclick="resume('${s.session}')">resume</button>
     </li>`).join("")}</ul>`;
-  } catch { /* el historial no debe romper la página */ }
+  } catch { /* history must never break the page */ }
 }
 
 async function resume(id) {
@@ -420,18 +420,19 @@ async function loadCorpus() {
     if (!c.records) { body.innerHTML = `<span class="why">${escape(c.note)}</span>`; return; }
     const rows = [];
     if (c.defaults_overridden && c.defaults_overridden.length) {
-      rows.push(`<div class="banner warn"><b>Defaults que se corrigen más de lo que se aceptan</b>
+      rows.push(`<div class="banner warn"><b>Defaults corrected more often than accepted</b>
         <ul>${c.defaults_overridden.map(d =>
-          `<li><code>${escape(d.field)}</code> — corregido ${d.overridden}, aceptado ${d.accepted}</li>`).join("")}</ul></div>`);
+          `<li><code>${escape(d.field)}</code> — corrected ${d.overridden}, accepted ${d.accepted}</li>`).join("")}</ul>
+        A default that keeps getting corrected is not a default, it is a bad guess.</div>`);
     }
     rows.push(`<ul>
-      <li>${c.records} eventos en ${c.sessions} sesión(es), ${c.boards_generated} port(s) generados</li>
-      ${c.parts_seen.length ? `<li>piezas: ${c.parts_seen.map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
+      <li>${c.records} events across ${c.sessions} session(s), ${c.boards_generated} port(s) generated</li>
+      ${c.parts_seen.length ? `<li>parts: ${c.parts_seen.map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
       ${c.socs_seen.length ? `<li>SoCs: ${c.socs_seen.map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
-      ${c.questions_asked.length ? `<li>preguntas más frecuentes: ${c.questions_asked.slice(0, 6).map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
+      ${c.questions_asked.length ? `<li>most frequent questions: ${c.questions_asked.slice(0, 6).map(([n, k]) => `${escape(n)}×${k}`).join(", ")}</li>` : ""}
     </ul><span class="why">${escape(c.note)}</span>`);
     body.innerHTML = rows.join("");
-  } catch { /* idem */ }
+  } catch { /* likewise */ }
 }
 
 addSensor({ name: "DHT22", type: "temperature_humidity", interface: "GPIO", pins: "pin=P0.13" });

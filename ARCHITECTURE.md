@@ -1,198 +1,241 @@
-# El enfoque
+# The approach
 
-Documento para quien se incorpora al proyecto. No describe qué hace el código
-—eso está en los docstrings— sino **por qué está construido así**, que es lo
-que no se deduce leyéndolo.
+For someone joining the project. This does not describe what the code does —
+the docstrings do that — but **why it is shaped this way**, which is the part
+you cannot get from reading it.
 
-## El problema real
+## The real problem
 
-Un generador de firmware que recibe una descripción y devuelve firmware miente
-por omisión. Los datos que necesita no están en la descripción: son propiedades
-de un objeto físico. A qué pin va el sensor. Hacia dónde va el conector. Contra
-qué está referenciada la entrada analógica. Qué selecciona el pin ADDR.
+A firmware generator that takes a description and returns firmware is lying by
+omission. The facts it needs are not in the description. They are properties of
+a physical object: which pin the sensor is on, which way round the connector
+goes, what the analog input is referenced against, what the ADDR pin selects.
 
-Y hay una asimetría que decide toda la arquitectura:
+And there is an asymmetry that decides the whole architecture:
 
-> Un hecho de hardware equivocado produce firmware que **compila, arranca y
-> reporta números plausibles**. Ningún test lo detecta, porque el test se
-> genera a partir de la misma suposición.
+> A wrong hardware fact produces firmware that **compiles, boots, and reports
+> plausible numbers**. No test catches it, because the test is generated from
+> the same assumption.
 
-Comparado con eso, un error de sintaxis es un regalo. Por eso el sistema entero
-está organizado alrededor de una pregunta: *¿de dónde sale este dato?*
+Next to that, a syntax error is a gift. So the entire system is organised
+around one question: *where did this value come from?*
 
-## Las tres categorías de dato
+## Three categories of fact
 
-| | Origen | Automatizable |
+| | Source | Automatable |
 |---|---|---|
-| **Derivable** | cabeceras del compilador, bindings de Zephyr, devicetree del SoC | sí, del todo |
-| **De esta placa** | netlist, o una persona | no: no está en ningún corpus |
-| **De producto** | el cliente | no: es una decisión, no un hecho |
+| **Derivable** | compiler headers, Zephyr bindings, the SoC devicetree | yes, completely |
+| **About this board** | a netlist, or a person | no: it is in no corpus |
+| **Product decisions** | the customer | no: a choice, not a fact |
 
-La categoría 2 es la difícil, y es donde vive el fallo silencioso. Ningún RAG,
-ningún datasheet y ningún modelo sabe a qué pin soldaste el DHT22.
+Category 2 is the hard one, and it is where silent failure lives. No RAG, no
+datasheet and no model knows which pin you soldered the DHT22 to.
 
-## Decisión 1 — La incertidumbre se enumera en código, no en un prompt
+## Decision 1 — Uncertainty is enumerated in code, not in a prompt
 
 `agents/uncertainty.py`
 
-El diseño obvio es decirle a un modelo *"pregunta cuando no estés seguro"*. No
-funciona. Rellenar huecos de forma plausible es lo que un modelo de lenguaje
-hace por defecto; pedirle que detecte sus propias lagunas reporta **menos** de
-las que hay, no más.
+The obvious design is to tell a model *"ask when you are unsure"*. It does not
+work. Filling gaps plausibly is what a language model does by default; asking
+it to notice its own gaps reports **fewer** than exist, not more.
 
-Así que la lista de incógnitas se deriva en código ordinario a partir de lo que
-el generador realmente consume. Un modelo que se olvide de preguntar por el
-reloj no puede causar un error de temporización de 16×, porque `scan_draft`
-plantea la pregunta igual.
+So the list of unknowns is derived in ordinary code from what the generator
+actually consumes. A model that forgets to wonder about the clock cannot cause
+a 16× timing error, because `scan_draft` raises the question anyway.
 
-Al modelo le queda lo que hace bien: redactar la pregunta y leer la respuesta.
+What is left for the model is what it is good at: phrasing the question and
+reading the answer back.
 
-### Bloqueante vs. consultiva
+### Blocking versus advisory
 
-La separación **no** es por importancia. Es por *cómo falla* una respuesta
-equivocada:
+The split is **not** about importance. It is about *how a wrong answer fails*:
 
-- Falla **ruidosamente** (error de compilación, NACK, basura visible en el
-  puerto serie) → puede tener valor por defecto. Alguien se dará cuenta.
-- Falla **en silencio** (lecturas plausibles y falsas, un sensor que nunca se
-  lee, tiempos desviados por un factor constante) → **no hay default**. Bloquea,
-  y contesta quien tiene la placa delante.
+- Fails **loudly** — build error, NACK, visible garbage on the serial line →
+  a default is fine. Someone will notice.
+- Fails **silently** — plausible wrong readings, a sensor that is never read,
+  timing off by a constant factor → **no default**. It blocks, and the person
+  holding the board answers.
 
-Cada entrada declara su modo de fallo en el campo `failure`, para que la
-clasificación se pueda discutir en vez de creer.
+Every entry states its failure mode in the `failure` field, so the
+classification can be argued with rather than believed.
 
-## Decisión 2 — Estados de evidencia, no un booleano "verificado"
+## Decision 2 — Evidence states, not a "verified" boolean
 
 `core/evidence.py`, `services/verifier.py`
 
-No existe un `verified: bool` que alguien pueda poner a `True`. "Verificado" no
-es una propiedad de un valor: es una *relación* entre el valor y un artefacto
-que alguien puede ir a leer.
+There is no `verified: bool` anyone can set to `True`. "Verified" is not a
+property a value has: it is a *relationship* between the value and an artifact
+somebody can go and read.
 
-| Estado | Qué permite concluir |
+| State | What it lets you conclude |
 |---|---|
-| `authoritative` | leído de un artefacto versionado, con localizador exacto |
-| `executed` | probado ejecutando algo. Solo la propiedad que se probó |
-| `cited` | encontrado buscando fuera. Evidencia real, **no** autoridad |
-| `none` | alguien lo afirmó |
+| `authoritative` | read out of a versioned artifact, with an exact locator |
+| `executed` | proven by running something. Only the property tested |
+| `cited` | found by looking outside. Real evidence, **not** authority |
+| `none` | somebody asserted it |
 
-**No hay estado "revisado", y es deliberado.** Releer una afirmación no crea
-evidencia. Si una dirección de registro salió del recuerdo de un modelo, un
-segundo modelo preguntándose si parece correcta está consultando la misma
-distribución que la produjo: sus errores están correlacionados. Dos pasadas
-multiplican la confianza sin multiplicar la evidencia, y producen un documento
-que dice "verificado" sin nada externo que lo sostenga — peor que un `none`
-honesto, porque ya no se puede detectar aguas abajo.
+**There is no "reviewed" state, and that is deliberate.** Re-reading a claim
+creates no evidence. If a register address came from a model's recollection, a
+second model asked whether it looks right is querying the distribution that
+produced it: their errors are correlated. Two passes multiply confidence
+without multiplying evidence, and they yield a document saying "verified" with
+nothing external behind it — worse than an honest `none`, because it can no
+longer be spotted downstream.
 
-La promoción de estado solo ocurre **encontrando un artefacto**. Nunca
-deliberando más.
+Promotion happens only by **finding an artifact**. Never by deliberating harder.
 
-Consecuencias prácticas:
+Practical consequences:
 
-- Una cita exige fecha de recuperación (`__post_init__` lo impone): una página
-  externa cambia o desaparece, y sin fecha no se puede re-comprobar.
-- Una fuente sin versión fijada se rechaza como autoridad. `ameba-rtos-d` no
-  vale; `ameba-rtos-d@a1b2c3d` sí.
-- La evidencia no se puede debilitar en silencio: sustituir un hecho comprobado
-  por un recuerdo lanza excepción.
-- Una **contradicción** (el artefacto dice otra cosa) para el build. No es un
-  aviso. Se transporta como bandera en la excepción, no adivinando por el texto
-  del mensaje.
+- A citation requires a retrieval date (enforced in `__post_init__`): an
+  external page changes or vanishes, and an undated citation cannot be
+  re-checked.
+- A source with no pinned version is refused as an authority. `ameba-rtos-d`
+  will not do; `ameba-rtos-d@a1b2c3d` will.
+- Evidence cannot be silently weakened: replacing a checked fact with a
+  recollection raises.
+- A **contradiction** (the artifact says something else) stops the build. It is
+  not a warning. It travels as a flag on the exception, not inferred from the
+  message text.
 
-## Decisión 3 — Zephyr, y por qué se dejó el bare metal
+## Decision 3 — Zephyr, and why bare metal was set aside
 
 `codegen/zephyr/`
 
-Generar escrituras a registro obliga a poseer el mapa de registros de cada
-pieza, sin nada contra qué contrastarlo. Se llegó a construir así (drivers AVR
-bare-metal, en `codegen/templates/drivers/`) y funciona, pero no escala: cada
-familia nueva son mapas de registros nuevos e igual de incomprobables.
+Generating register writes means owning the register map for every part, with
+nothing to check it against. It was built that way first — the AVR bare-metal
+drivers in `codegen/templates/drivers/` work — but it does not scale: every new
+family is new register maps, equally uncheckable.
 
-Con Zephyr **se deja de generar drivers**. Un nodo que dice *"hay un aosong,dht
-en este pin"* delega el trabajo en código escrito por alguien con el datasheet
-delante. ~1500 líneas de plantillas de driver se convierten en ~40 de
-devicetree, y el problema del mapa de registros no se gestiona: desaparece.
+With Zephyr you **stop generating drivers**. A node saying *"there is an
+aosong,dht on this pin"* hands the work to code written by someone with the
+datasheet open. ~1500 lines of driver templates become ~40 of devicetree, and
+the register-map problem is not managed: it disappears.
 
-Además el devicetree **es** la descripción legible por máquina de *tu* placa
-concreta — exactamente la categoría 2 — y sirve igual para una PCBA propia que
-para una placa de desarrollo.
+The devicetree is also the machine-readable description of *your specific
+board* — exactly category 2 — and it works the same for a custom PCBA as for a
+development board.
 
-Y encaja solo: las preguntas que el enumerador ya hacía (qué pin, qué pull, qué
-nivel activo) resultan ser los campos de un nodo de devicetree. `aosong,dht`
-exige `dio-gpios`; ya lo estábamos preguntando.
+And it fits by itself: the questions the enumerator already asked (which pin,
+which pull, which active level) turn out to be the fields of a devicetree node.
+`aosong,dht` requires `dio-gpios`; we were already asking.
 
-### Resolución de piezas: tres salidas y no hay cuarta
+### Resolving a part: three outcomes, and no fourth
 
-- **`exact`** — hay binding con ese nombre. Aun así es solo un *candidato*: la
-  convención de Zephyr es "nombre de fichero = compatible", y una convención no
-  es un artefacto. `ZephyrBindingVerifier` lee el campo `compatible:` del YAML.
-- **`substitute`** — no hay binding para la pieza, pero un driver genérico habla
-  su protocolo. Un NEO-6M no tiene binding; `gnss-nmea-generic` sí. La renuncia
-  se escribe en el README generado: hay posición y hora, no hay UBX.
-- **`none`** — se rehúsa. Elegir el compatible más parecido enlaza el driver de
-  *otro* dispositivo, que arranca limpio y reporta números falsos.
+- **`exact`** — a binding named for the part. Still only a *candidate*:
+  Zephyr's convention is "filename == compatible", and a convention is not an
+  artifact. `ZephyrBindingVerifier` reads the YAML's own `compatible:` field.
+- **`substitute`** — no binding for the part, but a generic driver speaks its
+  protocol. A NEO-6M has no binding; `gnss-nmea-generic` does. What you give up
+  is written into the generated README: position and time yes, UBX no.
+- **`none`** — refused. Picking the closest-looking compatible binds a driver
+  for a *different* device, which initialises cleanly and reports wrong numbers.
 
-## Decisión 4 — Comprobar contra el artefacto que el build usará
+## Decision 4 — Check against the artifact the build will use
 
 `codegen/zephyr/binding_fetch.py`, `codegen/zephyr/soc_facts.py`
 
-Si hay un checkout local de Zephyr, se lee de ahí antes que de la red: ese es el
-artefacto que el build va a usar, y verificar otra copia no establece nada sobre
-el build.
+If a local Zephyr checkout exists, it is read in preference to the network:
+that is the artifact the build will use, and verifying a different copy
+establishes nothing about the build.
 
-Este principio corrigió un fallo concreto y vergonzoso. La comprobación de
-contención de periféricos preguntaba a `core/device_catalog.py`, que responde
-invocando avr-gcc. Preguntada por un nRF52840 no se abstenía: respondía **1
-UART**, que es falso — tiene 2. Y `unsupported()` lo declaraba no soportado. Una
-respuesta segura y equivocada es peor que ninguna, porque nada aguas abajo la
-trata como sospechosa. Ahora el conteo sale del `.dtsi` del propio SoC:
+This principle fixed one concrete and embarrassing defect. The
+peripheral-contention check asked `core/device_catalog.py`, which answers by
+invoking avr-gcc. Asked about an nRF52840 it did not abstain: it answered **one
+UART**, which is false — the part has two. And `unsupported()` declared it
+unsupported. A confidently wrong answer is worse than none, because nothing
+downstream treats it as suspect. Counts now come from the SoC's own `.dtsi`:
 nRF52840 → 2, STM32F411 → 3, ESP32-S3 → 3.
 
-## Mapa del repositorio
+## Decision 5 — Vendor-specific things are named, not smoothed over
+
+`codegen/zephyr/pinctrl.py`
+
+Pin muxing is where devicetree stops being vendor-neutral. Nordic writes
+`NRF_PSEL(UART_TX, 0, 6)`; STM32 refers to pre-generated symbols like
+`<&usart1_tx_pa9>`; there is no common spelling and no way to derive one. So
+that module knows a couple of dialects and refuses for the rest, with a message
+saying what to write by hand.
+
+Same file records *implied* peripherals: on Nordic, GPIO interrupts are served
+by GPIOTE, a separate node that nothing in a button's own definition mentions.
+
+A guess in either place would produce a board that builds, boots, and prints
+out of a pad nobody connected — the failure this project exists to avoid,
+arriving by a new route.
+
+## Decision 6 — What the collected data can and cannot teach
+
+`webapp/store.py`
+
+The corpus is an append-only log of what was asked, what came back, and whether
+the port built. It **cannot** teach a model which pin your DHT22 is on: that is
+a property of one physical board, appears in no corpus, and a model predicting
+it would be guessing with extra steps.
+
+What it can teach:
+
+- **Which defaults are wrong.** A default overridden nine times in ten is not a
+  default, it is a bad guess with a nice interface. It caught one on its first
+  real data point: `supply_voltage` defaults to 5.0 and an nRF52840 board
+  answered 3.3.
+- **Which questions go unanswered**, meaning they are badly worded or aimed at
+  the wrong person.
+- **Which parts and SoCs recur**, which is the verify-by-hand backlog in order.
+- **Priors worth *suggesting*** — never assuming. The blocking/advisory split
+  keeps that enforced regardless of what a future model proposes.
+
+Whether a port builds is recorded as `"unknown"` rather than omitted, so a
+later `west build` can fill it in instead of the corpus quietly implying
+success. That field is the only supervision signal in the system.
+
+## Repository map
 
 ```
 core/
-  evidence.py        estados de evidencia y libro de afirmaciones
-  device_catalog.py  hechos de piezas AVR desde las cabeceras de avr-libc (414)
-  hardware_model.py  modelos validados; falla si el hardware es imposible
-  netlist_parser.py  KiCad -> conexiones (evita preguntas)
+  evidence.py        evidence states and the claim ledger
+  device_catalog.py  AVR part facts from avr-libc headers (414 parts)
+  hardware_model.py  validated models; raises if the hardware is impossible
+  netlist_parser.py  KiCad -> connections (questions you do not have to ask)
 agents/
-  uncertainty.py     ENUMERADOR DETERMINISTA — empieza a leer por aquí
-  normalizer.py      borrador + respuestas -> brief validado, o rechazo
-  interview.py       bucle de entrevista
-  part_lookup.py     descripción de piezas por modelo, siempre marcada sin verificar
+  uncertainty.py     THE DETERMINISTIC ENUMERATOR — start reading here
+  normalizer.py      draft + answers -> validated brief, or refusal
+  interview.py       the interview loop
+  part_lookup.py     model-described parts, always marked unverified
 codegen/
-  zephyr/            board port: bindings, propiedades, hechos del SoC
-  templates/zephyr/  las plantillas del port
-  templates/drivers/ drivers AVR bare-metal (rama anterior, funcional)
+  zephyr/            board port: bindings, properties, SoC facts, pinctrl
+  templates/zephyr/  the port templates
+  templates/drivers/ AVR bare-metal drivers (earlier branch, working)
 services/
-  verifier.py        traer el artefacto y comparar
-  zephyr_verifier.py confirmar un compatible contra su YAML
-  security.py        SBOM y medidas CRA, sin afirmar cumplimiento
+  verifier.py        fetch the artifact and diff
+  zephyr_verifier.py confirm a compatible against its own YAML
+  security.py        SBOM and CRA measures, never claiming compliance
 webapp/
-  api.py             describir -> preguntas -> respuestas -> zip
-  static/index.html  el frontal
+  api.py             describe -> questions -> answers -> zip
+  store.py           session persistence and the corpus
+  static/index.html  the front end
 ```
 
-## Qué NO está probado
+## What is NOT proven
 
-Se dice aquí y se repite en cada artefacto generado:
+Stated here and repeated in every generated artifact:
 
-- **El board port no se ha compilado.** Generar un devicetree no es compilarlo,
-  y compilarlo no es ejecutarlo.
-- **Nada se ha flasheado.** No ha habido una placa conectada en ningún momento.
-- Los drivers AVR con tiempos críticos están verificados solo en simulador; el
-  watchdog ni eso (el simulador de GDB no implementa `WDR`).
+- **A generated board port builds.** nRF52840 with a DHT22 and a button,
+  Zephyr v4.4.2, 34288 B of flash, with Zephyr's `dht_api` in the binary.
+- **Nothing has ever been on hardware.** No board has been connected at any
+  point, so pin numbers, active levels and pulls are only as good as the
+  answers they came from.
+- AVR timing-critical drivers are simulator-verified only, and the watchdog is
+  not even that — GDB's AVR simulator does not implement `WDR`.
 
-Si en algún momento el sistema afirma más que esto, es un defecto. La regla del
-proyecto es que un número bonito inventado es peor que un hueco declarado.
+If the system ever claims more than this, that is a defect. The project's rule
+is that an invented number is worse than a declared gap.
 
-## Por dónde seguir
+## Where to go next
 
-1. `west build` de verdad sobre un port generado. Es lo único que convierte
-   "estructuralmente correcto" en "correcto".
-2. Netlist → devicetree. Cada conexión leída del esquemático es una pregunta que
-   no hay que hacer.
-3. El agente de búsqueda activa: cuando no hay artefacto, que busque y anote lo
-   que encuentre como `cited` — nunca como `authoritative`.
-4. Sesiones persistentes en el webapp (hoy están en memoria, a propósito).
+1. Run `west build` from inside the flow and record the result in the corpus.
+   That closes the loop and creates the only supervision signal there is.
+2. Netlist → devicetree. Every connection read from the schematic is a question
+   nobody has to answer.
+3. The active-search agent: when there is no artifact, search, and record what
+   turns up as `cited` — never as `authoritative`.
+4. Persistent sessions in a real store (they are files today, on purpose).

@@ -12,3 +12,6 @@ out-zephyr/
 
 # datos locales del webapp
 .fw-automation-agent/
+
+# setuptools build output
+build/
