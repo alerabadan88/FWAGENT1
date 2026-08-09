@@ -28,6 +28,32 @@ from core.hardware_model import InterfaceType, PCBAnalysis
 
 TEMPLATES = Path(__file__).parent.parent / "templates" / "zephyr"
 
+#: Which answer fills which devicetree GPIO property. Every entry is a naming
+#: fact -- "the property a binding calls trigger-gpios is the pin the interview
+#: calls the trigger" -- and nothing here decides a pin number. A property not
+#: listed is one this generator refuses rather than fills, because a phandle
+#: pointed at the wrong pin binds cleanly and drives nothing.
+GPIO_PROPERTY_PINS = {
+    "dio-gpios": ("pin", "dio", "data"),
+    "gpios": ("pin", "gpio"),
+    "trigger-gpios": ("trigger", "trig"),
+    "echo-gpios": ("echo",),
+    "int-gpios": ("int", "interrupt", "irq"),
+    "reset-gpios": ("reset", "rst"),
+}
+
+#: Flags per property. A trigger is driven, an echo is read, and a one-wire
+#: data line idles high -- these are protocol facts, not board facts, so they
+#: are not asked.
+GPIO_PROPERTY_FLAGS = {
+    "dio-gpios": "(GPIO_PULL_UP | GPIO_ACTIVE_LOW)",
+    "trigger-gpios": "GPIO_ACTIVE_HIGH",
+    "echo-gpios": "GPIO_ACTIVE_HIGH",
+    "reset-gpios": "GPIO_ACTIVE_LOW",
+    "int-gpios": "GPIO_ACTIVE_HIGH",
+    "gpios": "(GPIO_ACTIVE_LOW | GPIO_PULL_UP)",
+}
+
 
 class BoardPortError(FWAgentError):
     """Raised when a board port cannot be generated correctly."""
@@ -75,6 +101,11 @@ class DeviceNode:
     """Why the binding could not be read, when it could not. Never blank
     silently: an unchecked node must be distinguishable from a checked one."""
 
+    gpio_properties: dict[str, str] = field(default_factory=dict)
+    """Devicetree GPIO property -> the pin that fills it, from the interview."""
+    pins: dict[str, str] = field(default_factory=dict)
+    """Every pin recorded for this part, keyed by the role the user gave."""
+
     def emitted_properties(self) -> set[str]:
         """Properties this node will actually carry in the devicetree.
 
@@ -84,12 +115,7 @@ class DeviceNode:
         so the required-property check compares against what is emitted, not
         against what was passed in.
         """
-        emitted = set(self.properties)
-        if self.compatible == "gpio-keys":
-            emitted.add("gpios")
-        elif self.parent == "root":
-            emitted.add("dio-gpios")
-        return emitted
+        return set(self.properties) | set(self.gpio_properties)
 
     @property
     def compatible(self) -> str:
@@ -202,18 +228,49 @@ class ZephyrBoardPort:
             )
             required = verifier.required_properties()
             node.required_properties = required
+            self._fill_gpio_properties(node, required)
 
             missing = [p for p in required if p not in node.emitted_properties()]
             if missing:
+                known = ", ".join(sorted(node.pins)) or "none"
                 raise BoardPortError(
                     f"'{node.resolution.part}' would be emitted as a "
                     f"{node.compatible} node without {missing}, which its "
-                    f"binding marks required "
-                    f"({node.resolution.binding_path}). This generator does not "
-                    f"know how to fill {missing[0]!r}, and inventing a value "
-                    f"would point it at something real and wrong. Add it by "
-                    f"hand, or extend the generator for this property."
+                    f"binding marks required ({node.resolution.binding_path}).\n"
+                    f"Pins recorded for it: {known}.\n"
+                    f"Either the interview did not ask for this one, or the "
+                    f"property is not a pin at all. Nothing is invented here: a "
+                    f"phandle pointed at the wrong pin binds cleanly and drives "
+                    f"nothing."
                 )
+
+    @staticmethod
+    def _fill_gpio_properties(node: DeviceNode, required: list[str]) -> None:
+        """Match the pins the interview collected to the properties the binding wants.
+
+        The matching is by *role name*, not by position: a binding's
+        `trigger-gpios` is filled from the pin somebody called the trigger. When
+        a part needs only one pin and only one is known, that one is used --
+        there is no ambiguity to resolve. Anything else is left unfilled, and
+        the caller refuses.
+        """
+        for prop in required:
+            if not prop.endswith("-gpios") and prop != "gpios":
+                continue
+            aliases = GPIO_PROPERTY_PINS.get(prop, ())
+            for alias in aliases:
+                for role, pin in node.pins.items():
+                    if role.lower() == alias:
+                        node.gpio_properties[prop] = pin
+                        break
+                if prop in node.gpio_properties:
+                    break
+
+        # A single-pin part whose pin was given without a role name.
+        unfilled = [p for p in required if p.endswith("gpios") and p not in node.gpio_properties]
+        spare = [pin for role, pin in node.pins.items() if pin not in node.gpio_properties.values()]
+        if len(unfilled) == 1 and len(spare) == 1:
+            node.gpio_properties[unfilled[0]] = spare[0]
 
     def _node(self, sensor, index: int, resolution: Resolution, answers: dict) -> DeviceNode:
         label = _label(sensor.name)
@@ -231,16 +288,27 @@ class ZephyrBoardPort:
         if sensor.interface is InterfaceType.UART:
             return DeviceNode(label=label, resolution=resolution, parent="uart")
 
-        # GPIO, 1-Wire and analog parts all reduce to "which pin", which the
-        # binding itself names -- aosong,dht wants dio-gpios, gpio-keys wants
-        # its own child node.
-        pin = (sensor.pins or {}).get("pin") or answers.get(f"{key}.pins")
-        if not pin:
+        # GPIO, 1-Wire and analog parts all reduce to "which pin(s)", and the
+        # binding itself names the properties -- aosong,dht wants dio-gpios, an
+        # HC-SR04 wants trigger-gpios and echo-gpios. Which pins those are is a
+        # board fact, so they come from the schematic or the interview.
+        pins = dict(sensor.pins or {})
+        answered = answers.get(f"{key}.pins")
+        if answered and not pins:
+            parts = [p.strip() for p in str(answered).replace(",", " ").split() if p.strip()]
+            pins = {"pin": parts[0]} if len(parts) == 1 else {
+                "trigger": parts[0], "echo": parts[1]
+            } if len(parts) >= 2 else {}
+
+        if not pins:
             raise BoardPortError(
                 f"{sensor.name} needs a pin and none was given. This is the "
                 f"question the interview exists to ask."
             )
-        return DeviceNode(label=label, resolution=resolution, parent="root", properties={})
+        return DeviceNode(
+            label=label, resolution=resolution, parent="root",
+            properties={}, pins=pins,
+        )
 
     def generate(
         self,
@@ -278,6 +346,7 @@ class ZephyrBoardPort:
             "zephyr_ref": self._catalog.ref,
             "binding_source": self._catalog.source,
             "gpio_spec": lambda pin, flags: _gpio_spec(pin, soc, flags),
+            "gpio_flags": lambda prop: GPIO_PROPERTY_FLAGS.get(prop, "GPIO_ACTIVE_HIGH"),
             "pin_of": lambda node: self._pin_for(node, analysis, answers),
         }
 

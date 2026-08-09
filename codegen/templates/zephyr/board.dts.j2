@@ -54,7 +54,12 @@
 {% else %}
 	{{ node.label }}: {{ node.label }} {
 		compatible = "{{ node.compatible }}";
+{% for prop, pin in node.gpio_properties.items() %}
+		{{ prop }} = {{ gpio_spec(pin, gpio_flags(prop)) }};
+{% endfor %}
+{% if not node.gpio_properties %}
 		dio-gpios = {{ gpio_spec(pin_of(node), "(GPIO_PULL_UP | GPIO_ACTIVE_LOW)") }};
+{% endif %}
 		status = "okay";
 	};
 {% endif %}

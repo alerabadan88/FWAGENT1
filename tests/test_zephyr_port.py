@@ -16,6 +16,7 @@ import re
 
 import pytest
 
+from codegen.zephyr.binding_fetch import BindingUnavailable
 from codegen.zephyr.bindings import BindingCatalog, Match
 from codegen.zephyr.board_port import (
     BoardPortError,
@@ -363,3 +364,110 @@ def test_the_readme_lists_each_node_with_its_match_quality():
 
     assert "| `dht22` | DHT22 | `aosong,dht` | exact |" in text
     assert "substitute" in text
+
+
+# --- Properties come from the binding, not from a table here --------------------
+
+
+class StubFetcher:
+    """Serves binding text without a network, so these stay offline."""
+
+    def __init__(self, texts: dict[str, str]) -> None:
+        self._texts = texts
+        self.source = "zephyrproject-rtos/zephyr@v4.4.2"
+
+    def fetch(self, path: str) -> str:
+        if path not in self._texts:
+            raise BindingUnavailable(f"no stub for {path}")
+        return self._texts[path]
+
+
+HCSR04_BINDING = '''
+description: HC-SR04 ultrasonic range finder
+
+compatible: "hc-sr04"
+
+properties:
+  trigger-gpios:
+    type: phandle-array
+    required: true
+  echo-gpios:
+    type: phandle-array
+    required: true
+'''
+
+BINDINGS = {
+    "dts/bindings/sensor/aosong,dht.yaml": DHT_BINDING,
+    "dts/bindings/sensor/hc-sr04.yaml": HCSR04_BINDING,
+}
+
+
+def checked_port() -> ZephyrBoardPort:
+    return ZephyrBoardPort(fetcher=StubFetcher(BINDINGS))
+
+
+def hcsr04(pins=None) -> Sensor:
+    return Sensor(name="HC-SR04", type="distance", interface=InterfaceType.GPIO,
+                  pins=pins or {"trigger": "P0.20", "echo": "P0.21"})
+
+
+def test_the_properties_a_node_carries_are_read_from_its_binding():
+    nodes = {n.label: n for n in checked_port().plan(analysis(dht(), hcsr04()))}
+
+    assert nodes["dht22"].required_properties == ["dio-gpios"]
+    assert nodes["hc_sr04"].required_properties == ["echo-gpios", "trigger-gpios"]
+
+
+def test_pins_are_matched_to_properties_by_role_not_by_position():
+    """A binding's trigger-gpios is filled by the pin somebody called trigger."""
+    node = next(n for n in checked_port().plan(analysis(hcsr04())) if n.label == "hc_sr04")
+
+    assert node.gpio_properties == {"trigger-gpios": "P0.20", "echo-gpios": "P0.21"}
+
+
+def test_swapping_the_roles_swaps_the_pins_rather_than_keeping_the_order():
+    node = next(n for n in checked_port().plan(
+        analysis(hcsr04({"echo": "P0.02", "trigger": "P0.03"}))
+    ) if n.label == "hc_sr04")
+
+    assert node.gpio_properties["trigger-gpios"] == "P0.03"
+
+
+def test_a_single_unnamed_pin_fills_a_single_required_property():
+    """No ambiguity to resolve, so nothing is asked."""
+    node = next(iter(checked_port().plan(analysis(dht()))))
+
+    assert node.gpio_properties == {"dio-gpios": "P0.13"}
+
+
+def test_a_part_missing_one_of_its_required_pins_is_refused():
+    with pytest.raises(BoardPortError, match="trigger-gpios"):
+        checked_port().plan(analysis(hcsr04({"echo": "P0.21"})))
+
+
+def test_the_refusal_says_which_pins_it_does_have():
+    with pytest.raises(BoardPortError, match="Pins recorded for it: echo"):
+        checked_port().plan(analysis(hcsr04({"echo": "P0.21"})))
+
+
+def test_a_binding_that_cannot_be_read_leaves_the_node_marked_unchecked():
+    """Silence must be distinguishable from a clean check."""
+    port = ZephyrBoardPort(fetcher=StubFetcher({}))
+    node = next(iter(port.plan(analysis(dht()))))
+
+    assert node.unchecked_reason
+    assert node.required_properties == []
+
+
+def test_without_a_fetcher_nothing_is_claimed_about_required_properties():
+    node = next(iter(ZephyrBoardPort().plan(analysis(dht()))))
+
+    assert node.required_properties == []
+
+
+def test_both_pins_reach_the_devicetree_with_the_right_flags():
+    files = checked_port().generate(analysis(hcsr04()), SOC, "Acme Node")
+    text = files["boards/acme/acme_node/acme_node.dts"]
+
+    assert "trigger-gpios = <&gpio0 20 GPIO_ACTIVE_HIGH>;" in text
+    assert "echo-gpios = <&gpio0 21 GPIO_ACTIVE_HIGH>;" in text
