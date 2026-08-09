@@ -8,3 +8,4 @@ dist/
 *.whl
 out-uno/
 out/
+out-zephyr/
