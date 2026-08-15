@@ -1,0 +1,79 @@
+{
+  "arch": "arm",
+  "cpu": "Cortex-A5",
+  "facts": {
+    "application_space": {
+      "evidence": {
+        "excerpt": "End User Space | 用户空间 | TBD",
+        "kind": "cited",
+        "locator": "硬件定义 r51",
+        "note": "",
+        "retrieved": "2026-08-15",
+        "source": "T106_Proudct specification V0.2-20260508.xlsx (V0.2)"
+      },
+      "value": "TBD in the source document"
+    },
+    "cpu_clock_hz": {
+      "evidence": {
+        "excerpt": "CPU主频 | Cortex A5 500MHz",
+        "kind": "cited",
+        "locator": "硬件定义 r25",
+        "note": "",
+        "retrieved": "2026-08-15",
+        "source": "T106_Proudct specification V0.2-20260508.xlsx (V0.2)"
+      },
+      "value": 500000000
+    },
+    "memory": {
+      "evidence": {
+        "excerpt": "Internal | 内存 | SIP 16MB Flash+16MB RAM",
+        "kind": "cited",
+        "locator": "硬件定义 r49",
+        "note": "",
+        "retrieved": "2026-08-15",
+        "source": "T106_Proudct specification V0.2-20260508.xlsx (V0.2)"
+      },
+      "value": "SIP 16MB Flash + 16MB RAM"
+    },
+    "network": {
+      "evidence": {
+        "excerpt": "4G Network | 4G网络 | FDDLTE:B1/3/5/8 TDDLTE:B34/B39/40/41(38)",
+        "kind": "cited",
+        "locator": "硬件定义 r30",
+        "note": "",
+        "retrieved": "2026-08-15",
+        "source": "T106_Proudct specification V0.2-20260508.xlsx (V0.2)"
+      },
+      "value": "LTE FDD B1/3/5/8, TDD B34/39/40/41, VoLTE"
+    },
+    "os": {
+      "evidence": {
+        "excerpt": "Operating System | 操作系统 | RTOS",
+        "kind": "cited",
+        "locator": "硬件定义 r27",
+        "note": "",
+        "retrieved": "2026-08-15",
+        "source": "T106_Proudct specification V0.2-20260508.xlsx (V0.2)"
+      },
+      "value": "RTOS"
+    }
+  },
+  "family_id": "UWS6121E",
+  "notes": "LTE Cat.1 SoC with an integrated modem. The SDK is NDA-gated and was not available when this record was written, so no symbol here is authoritative. Zephyr v4.4.2 does not support this part: a search of soc/, dts/ and boards/ for unisoc|sprd|spreadtrum|uws61 returns nothing, which is why it lives in this base rather than in the Zephyr path.",
+  "os_model": "rtos",
+  "part_patterns": [
+    "UWS6121E[A-Z0-9\\-]*"
+  ],
+  "peripherals": [],
+  "pin_syntax": "",
+  "sdk": {
+    "license_note": "NDA-gated. Read locally only -- knowledge.extract parses headers on this machine and uploads nothing.",
+    "local_path": "",
+    "name": "UNISOC UWS6121E SDK",
+    "retrieved": null,
+    "url": "",
+    "version": ""
+  },
+  "symbols": [],
+  "vendor": "UNISOC"
+}
